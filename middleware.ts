@@ -1,18 +1,23 @@
+// middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
+export function middleware(req: NextRequest) {
+  const { pathname, hash } = req.nextUrl;
 
-  // Refresca sesión si el token expiró
-  await supabase.auth.getSession();
+  // No interceptar la pantalla de recuperación ni cualquier URL con el hash de recovery
+  if (pathname.startsWith("/auth/callback") || (hash && hash.includes("type=recovery"))) {
+    return NextResponse.next();
+  }
 
-  return res;
+  // 👉 Aquí iría tu lógica de redirects si la tienes (p.ej., proteger rutas privadas)
+  // if (hasSession && pathname === "/login") return NextResponse.redirect(new URL("/dashboard", req.url));
+  // if (!hasSession && pathname.startsWith("/dashboard")) return NextResponse.redirect(new URL("/login", req.url));
+
+  return NextResponse.next();
 }
 
-// Excluye assets estáticos
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Aplica a todo excepto assets estáticos
+  matcher: ["/((?!_next|.*\\..*).*)"],
 };
