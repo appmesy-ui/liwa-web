@@ -1,78 +1,91 @@
+// app/auth/callback/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getSupabaseBrowserClient } from "../../../lib/supabase/client"; // 👈 FIX RUTA
+import { getSupabaseBrowserClient } from "../../../lib/supabase/client";
 
-type Mode = "checking" | "update" | "done" | "error";
+type Stage = "checking" | "recovery" | "done" | "error";
 
-export default function AuthCallback() {
+export default function AuthCallbackPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
 
-  const [mode, setMode] = useState<Mode>("checking");
-  const [password, setPassword] = useState("");
-  const [password2, setPassword2] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [stage, setStage] = useState<Stage>("checking");
+  const [pwd, setPwd] = useState("");
+  const [pwd2, setPwd2] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    // Lee el hash que trae Supabase: #access_token=...&type=recovery&...
     const hash = typeof window !== "undefined" ? window.location.hash : "";
-    const params = new URLSearchParams(hash.replace(/^#/, "")); // #a=b&c=d -> a=b&c=d
+    const params = new URLSearchParams(hash.replace(/^#/, ""));
     const type = params.get("type");
     const err = params.get("error");
     const errCode = params.get("error_code");
     const errDesc = params.get("error_description");
 
-    // Si el link trae error (p. ej. otp_expired)
+    // Si el enlace trae error (p.ej. otp_expired)
     if (err || errCode) {
-      setError(errDesc || "El enlace es inválido o ha expirado.");
-      setMode("error");
+      setMsg(errDesc || "El enlace es inválido o ha expirado. Solicita uno nuevo.");
+      setStage("error");
       return;
     }
 
-    // Si es recovery, mostrar formulario de nueva contraseña
-    if (type === "recovery") {
-      setMode("update");
-      return;
-    }
+    // Pequeña espera para que Supabase procese el hash y cree sesión temporal
+    const t = setTimeout(async () => {
+      const { data } = await supabase.auth.getSession();
 
-    // En otros casos, comprobar sesión y redirigir
-    supabase.auth.getSession().then(({ data }) => {
+      // Flujo de recuperación de contraseña
+      if (type === "recovery") {
+        if (data.session) {
+          setStage("recovery");
+        } else {
+          setMsg("No se pudo validar la sesión de recuperación. Solicita un nuevo enlace.");
+          setStage("error");
+        }
+        return;
+      }
+
+      // Otros flujos (magic link, sign-in, sign-up) — redirige según haya sesión o no
       if (data.session) {
-        setMode("done");
+        setStage("done");
         router.replace("/dashboard");
       } else {
-        setMode("done");
+        setStage("done");
         router.replace("/login");
       }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    }, 150);
+
+    return () => clearTimeout(t);
+  }, [router, supabase]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setMsg(null);
 
-    if (password.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
+    if (pwd.length < 8) {
+      setMsg("La contraseña debe tener al menos 8 caracteres.");
       return;
     }
-    if (password !== password2) {
-      setError("Las contraseñas no coinciden.");
+    if (pwd !== pwd2) {
+      setMsg("Las contraseñas no coinciden.");
       return;
     }
 
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) {
-      setError(error.message);
+      setMsg(error.message);
       return;
     }
 
-    setMode("done");
-    router.replace("/dashboard");
+    // Éxito: cierra el flujo y redirige donde prefieras
+    setStage("done");
+    router.replace("/login"); // o "/dashboard" si deseas entrar directo
   };
 
-  if (mode === "checking") {
+  // UI
+  if (stage === "checking") {
     return (
       <main className="min-h-screen grid place-items-center p-6">
         <div className="text-slate-600 text-sm">Procesando autenticación…</div>
@@ -80,13 +93,13 @@ export default function AuthCallback() {
     );
   }
 
-  if (mode === "error") {
+  if (stage === "error") {
     return (
       <main className="min-h-screen grid place-items-center p-6">
         <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow">
           <h1 className="text-xl font-semibold mb-2">Enlace inválido</h1>
           <p className="text-sm text-slate-600 mb-4">
-            {error ?? "El enlace es inválido o ha expirado. Solicita uno nuevo desde la página de acceso."}
+            {msg ?? "El enlace es inválido o ha expirado. Solicita uno nuevo desde la página de acceso."}
           </p>
           <button
             onClick={() => router.replace("/login")}
@@ -99,7 +112,7 @@ export default function AuthCallback() {
     );
   }
 
-  if (mode === "update") {
+  if (stage === "recovery") {
     return (
       <main className="min-h-screen grid place-items-center bg-slate-50 p-6">
         <form
@@ -117,8 +130,8 @@ export default function AuthCallback() {
           <input
             type="password"
             className="mt-1 mb-3 w-full rounded-lg border px-3 py-2"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={pwd}
+            onChange={(e) => setPwd(e.target.value)}
             placeholder="••••••••"
             required
           />
@@ -129,13 +142,13 @@ export default function AuthCallback() {
           <input
             type="password"
             className="mt-1 mb-3 w-full rounded-lg border px-3 py-2"
-            value={password2}
-            onChange={(e) => setPassword2(e.target.value)}
+            value={pwd2}
+            onChange={(e) => setPwd2(e.target.value)}
             placeholder="••••••••"
             required
           />
 
-          {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+          {msg && <p className="text-sm text-red-600 mb-3">{msg}</p>}
 
           <button
             type="submit"
@@ -148,7 +161,7 @@ export default function AuthCallback() {
     );
   }
 
-  // mode === "done"
+  // stage === "done"
   return (
     <main className="min-h-screen grid place-items-center p-6">
       <p className="text-slate-600 text-sm">Redirigiendo…</p>
