@@ -3,8 +3,14 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: { default: "LIWA", template: "LIWA — %s" },
-  description: "Plataforma LIWA",
+  title: {
+    default: "LIWA",
+    template: "LIWA – %s",
+  },
+  description: "Plataforma de análisis y gestión operativa",
+  icons: {
+    icon: "/liwa.svg", // favicon
+  },
 };
 
 export default function RootLayout({
