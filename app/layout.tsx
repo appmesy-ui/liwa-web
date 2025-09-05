@@ -1,19 +1,15 @@
-import "./globals.css"
+import type { Metadata } from "next";
 
-export const metadata = {
-  title: "Liwa",
-  description: "Liwa – OEE App",
+export const metadata: Metadata = {
+  title: "LIWA — Acceso",
+  description: "Plataforma de análisis y gestión operativa",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="es">
-      <body className="min-h-screen bg-gray-50 flex flex-col">
-        <header className="p-4 bg-white shadow-md">
-          <h1 className="text-xl font-bold text-indigo-600">Liwa</h1>
-        </header>
-        <main className="flex-1 p-6">{children}</main>
-      </body>
-    </html>
-  )
+export default function LoginLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // Este layout envuelve al login y aplica metadata
+  return children;
 }
