@@ -16,41 +16,53 @@ export default function AuthCallbackPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const hash = typeof window !== "undefined" ? window.location.hash : "";
-    const params = new URLSearchParams(hash.replace(/^#/, ""));
-    const type = params.get("type");
-    const err = params.get("error");
-    const errCode = params.get("error_code");
-    const errDesc = params.get("error_description");
+    let mounted = true;
 
-    if (err || errCode) {
-      setMsg(errDesc || "El enlace es inválido o ha expirado. Solicita uno nuevo.");
-      setStage("error");
-      return;
-    }
+    (async () => {
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      const params = new URLSearchParams(hash.replace(/^#/, ""));
+      const type = params.get("type");
+      const err = params.get("error");
+      const errCode = params.get("error_code");
+      const errDesc = params.get("error_description");
 
-    const t = setTimeout(async () => {
-      const { data } = await supabase.auth.getSession();
-
-      if (type === "recovery") {
-        if (data.session) setStage("recovery");
-        else {
-          setMsg("No se pudo validar la sesión de recuperación. Solicita un nuevo enlace.");
+      if (err || errCode) {
+        if (mounted) {
+          setMsg(errDesc || "El enlace es inválido o ha expirado. Solicita uno nuevo.");
           setStage("error");
         }
         return;
       }
 
-      if (data.session) {
-        setStage("done");
-        router.replace("/dashboard");
-      } else {
-        setStage("done");
-        router.replace("/login");
-      }
-    }, 150);
+      try {
+        // 👈 PASO CLAVE: crea sesión en el navegador a partir del hash del email
+        const { error: exchError } = await supabase.auth.exchangeCodeForSession(hash);
+        if (exchError) throw exchError;
 
-    return () => clearTimeout(t);
+        const { data } = await supabase.auth.getSession();
+        const hasSession = !!data.session;
+
+        if (type === "recovery") {
+          if (mounted) setStage(hasSession ? "recovery" : "error");
+          if (!hasSession && mounted) setMsg("No se pudo validar la sesión de recuperación. Solicita un nuevo enlace.");
+          return;
+        }
+
+        // Otros tipos (signup/magiclink/verify) → decide adónde enviar
+        if (mounted) {
+          setStage("done");
+          router.replace(hasSession ? "/dashboard" : "/login");
+        }
+      } catch (e: any) {
+        console.error(e);
+        if (mounted) {
+          setMsg(e?.message ?? "No pudimos procesar el enlace. Solicita uno nuevo.");
+          setStage("error");
+        }
+      }
+    })();
+
+    return () => { mounted = false; };
   }, [router, supabase]);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -64,7 +76,9 @@ export default function AuthCallbackPage() {
     if (error) return setMsg(error.message);
 
     setStage("done");
-    router.replace("/login"); // 👈 después del reset vuelve al login
+    // 👇 cierra sesión y vuelve al login
+    await supabase.auth.signOut();
+    router.replace("/login?reset=ok");
   };
 
   if (stage === "checking") {
@@ -97,10 +111,7 @@ export default function AuthCallbackPage() {
   if (stage === "recovery") {
     return (
       <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <form
-          onSubmit={onSubmit}
-          className="w-full max-w-md rounded-2xl border bg-white p-6 shadow"
-        >
+        <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border bg-white p-6 shadow">
           <h1 className="text-xl font-semibold mb-2">Nueva contraseña</h1>
           <p className="text-sm text-slate-500 mb-4">Define tu nueva contraseña para continuar.</p>
 
@@ -112,6 +123,7 @@ export default function AuthCallbackPage() {
             onChange={(e) => setPwd(e.target.value)}
             placeholder="••••••••"
             required
+            minLength={8}
           />
 
           <label className="block text-sm font-medium text-slate-700">Repetir contraseña</label>
@@ -122,14 +134,12 @@ export default function AuthCallbackPage() {
             onChange={(e) => setPwd2(e.target.value)}
             placeholder="••••••••"
             required
+            minLength={8}
           />
 
           {msg && <p className="text-sm text-red-600 mb-3">{msg}</p>}
 
-          <button
-            type="submit"
-            className="w-full rounded-full bg-teal-500 px-4 py-2 font-medium text-white hover:bg-teal-600"
-          >
+          <button type="submit" className="w-full rounded-full bg-teal-500 px-4 py-2 font-medium text-white hover:bg-teal-600">
             Guardar contraseña
           </button>
         </form>
