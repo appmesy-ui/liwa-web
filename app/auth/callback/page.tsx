@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "../../../lib/supabase/client";
 
@@ -14,6 +14,14 @@ export default function AuthCallbackPage() {
   const [pwd, setPwd] = useState("");
   const [pwd2, setPwd2] = useState("");
 
+  // Evita redirecciones dobles (parpadeo)
+  const alreadyNavigated = useRef(false);
+  const safeReplace = (path: string) => {
+    if (alreadyNavigated.current) return;
+    alreadyNavigated.current = true;
+    router.replace(path);
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -21,14 +29,12 @@ export default function AuthCallbackPage() {
       const href =
         typeof window !== "undefined" ? window.location.href : "http://localhost";
       const url = new URL(href);
-      const q = url.searchParams; // ?code=...&type=recovery&token_hash=...
-      const hash = url.hash || ""; // #access_token=...&type=recovery
+      const q = url.searchParams;           // ?code=...&type=...&token_hash=...
+      const hash = url.hash || "";          // #access_token=...&type=...
       const h = new URLSearchParams(hash.replace(/^#/, ""));
       const get = (k: string) => q.get(k) || h.get(k);
       return {
-        url,
         q,
-        h,
         hash,
         type: get("type"),
         code: q.get("code"),
@@ -36,82 +42,65 @@ export default function AuthCallbackPage() {
       };
     };
 
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      return !!data.session;
+    };
+
     (async () => {
       const { type, code, token_hash, hash } = parseUrl();
 
-      // 1) Intentar intercambio de sesión por todos los caminos soportados
+      // 1) Intentar crear sesión por todas las vías
       let exchanged = false;
-      let lastErr: any = null;
-
-      const checkSession = async () => {
-        const { data } = await supabase.auth.getSession();
-        return !!data.session;
-      };
-
-      // A) PKCE moderno con ?code=...
-      if (!exchanged && code) {
-        try {
-          // Algunas versiones aceptan string, otras { code }
-          const r1 = await supabase.auth.exchangeCodeForSession(code as any);
+      try {
+        // A) PKCE: ?code=...
+        if (!exchanged && code) {
+          const r1: any = await supabase.auth.exchangeCodeForSession(code as any);
           if (r1?.error) {
-            const r2 = await supabase.auth.exchangeCodeForSession({ code } as any);
-            if (r2?.error) lastErr = r2.error;
-            else exchanged = true;
+            const r2: any = await supabase.auth.exchangeCodeForSession({ code } as any);
+            if (!r2?.error) exchanged = true;
           } else {
             exchanged = true;
           }
-        } catch (e) {
-          lastErr = e;
         }
-      }
 
-      // B) Flow antiguo con #access_token=...
-      if (!exchanged && hash) {
-        try {
-          const { error } = await supabase.auth.exchangeCodeForSession(hash);
-          if (error) lastErr = error;
-          else exchanged = true;
-        } catch (e) {
-          lastErr = e;
+        // B) Hash antiguo: #access_token=...
+        if (!exchanged && hash) {
+          const { error } = await supabase.auth.exchangeCodeForSession(hash as any);
+          if (!error) exchanged = true;
         }
-      }
 
-      // C) Fallback SSR: verifyOtp con token_hash (si el email lo trae)
-      if (!exchanged && token_hash) {
-        try {
+        // C) Fallback sin PKCE: ?token_hash=...
+        if (!exchanged && token_hash) {
           const { error } = await supabase.auth.verifyOtp({
             type: "recovery",
             token_hash,
           } as any);
-          if (error) lastErr = error;
-          else exchanged = true;
-        } catch (e) {
-          lastErr = e;
+          if (!error) exchanged = true;
         }
+      } catch {
+        // ignoramos, seguimos con control de sesión
       }
 
-      // 2) Flujo de salida sin mostrar pantallas de error
       const hasSession = await checkSession();
 
-      // Rama de recuperación: mostrar el form si hay sesión; si no, a login
+      // 2) Rutas de salida (sin pantallas de error)
       if (type === "recovery") {
         if (hasSession) {
           if (!mounted) return;
-          setStage("recovery");
+          setStage("recovery"); // mostramos formulario de nueva contraseña
           return;
         }
-        router.replace("/login?reason=recovery_no_session");
+        safeReplace("/login?reason=recovery_no_session");
         return;
       }
 
-      // Resto de casos: redirige según sesión
       if (hasSession) {
-        router.replace("/dashboard");
+        safeReplace("/dashboard");
         return;
       }
 
-      // Si no hay sesión, vuelve a login con motivo (sin mostrar error en pantalla)
-      router.replace("/login?reason=callback_fail");
+      safeReplace("/login?reason=callback_fail");
     })();
 
     return () => {
@@ -119,21 +108,19 @@ export default function AuthCallbackPage() {
     };
   }, [router, supabase]);
 
-  // Submit para cambiar contraseña en modo recovery
+  // Guardar nueva contraseña
   const onSubmitNewPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (pwd.length < 8) return alert("La contraseña debe tener al menos 8 caracteres.");
     if (pwd !== pwd2) return alert("Las contraseñas no coinciden.");
 
     const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) return alert(error.message || "No se pudo actualizar la contraseña.");
-    router.replace("/login?reset=ok");
+    safeReplace("/login?reset=ok");
   };
 
-  // UI minimalista por estados (sin vista de error)
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4">
+    <main className="min-h-screen overflow-y-scroll flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4">
       <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white/80 shadow-xl backdrop-blur p-6">
         {stage === "checking" && (
           <div className="text-center">
