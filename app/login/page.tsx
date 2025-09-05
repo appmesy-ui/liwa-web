@@ -1,42 +1,44 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
+import { useAuthSession } from "../../lib/auth/useAuthSession";
 
 export default function LoginPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
+  const status = useAuthSession();
 
-  // --- Anti “vibración”: evita redirecciones dobles
-  const redirected = useRef(false);
-  const goDashOnce = () => {
-    if (redirected.current) return;
-    redirected.current = true;
-    router.replace("/dashboard");
+  // Anti doble navegación
+  const navigated = useRef(false);
+  const safeReplace = (path: string) => {
+    if (navigated.current) return;
+    navigated.current = true;
+    router.replace(path);
   };
 
-  // --- Si ya hay sesión, nos vamos al dashboard
-  useEffect(() => {
-    let cancelled = false;
+  // Si YA está autenticado, redirige UNA vez y no renderices el formulario
+  if (status === "authed") {
+    safeReplace("/dashboard");
+    return (
+      <main className="min-h-screen overflow-y-scroll grid place-items-center">
+        <p className="text-slate-600">Entrando…</p>
+      </main>
+    );
+  }
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled && data.session) goDashOnce();
-    });
+  // Cargando estado → skeleton (no muestres login aún para evitar flash)
+  if (status === "loading") {
+    return (
+      <main className="min-h-screen overflow-y-scroll grid place-items-center">
+        <p className="text-slate-600">Comprobando sesión…</p>
+      </main>
+    );
+  }
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (cancelled) return;
-      if (event === "SIGNED_IN") goDashOnce();
-    });
-
-    return () => {
-      cancelled = true;
-      sub?.subscription?.unsubscribe();
-    };
-  }, [router, supabase]);
-
-  // --- Login (email + password)
+  // status === "unauthed" → ahora sí muestra el login
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
   const [loginMsg, setLoginMsg] = useState<string | null>(null);
@@ -56,8 +58,8 @@ export default function LoginPage() {
         password: pwd,
       });
       if (error) throw error;
-      // onAuthStateChange redirige; por si acaso:
-      goDashOnce();
+
+      // Cuando cambie el estado a 'authed', el render superior hará el replace (sin bucles)
     } catch (err: any) {
       setLoginMsg(err?.message || "No pudimos iniciar sesión.");
     } finally {
@@ -65,7 +67,6 @@ export default function LoginPage() {
     }
   };
 
-  // --- Reset password (envía email con tu template de token_hash)
   const [resetEmail, setResetEmail] = useState("");
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -84,14 +85,11 @@ export default function LoginPage() {
           ? window.location.origin
           : "https://liwa-web.vercel.app";
 
-      // Este redirectTo no es crítico porque el EMAIL seguirá tu template con token_hash,
-      // pero lo dejamos bien apuntando a /auth/callback?type=recovery
-      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+      await supabase.auth.resetPasswordForEmail(resetEmail, {
         redirectTo: `${origin}/auth/callback?type=recovery`,
       });
-      if (error) throw error;
       setResetMsg(
-        "Te enviamos un email con el enlace para restablecer tu contraseña. Revisa tu bandeja."
+        "Te enviamos un email con el enlace para restablecer tu contraseña."
       );
     } catch (err: any) {
       setResetMsg(err?.message || "No pudimos enviar el correo de recuperación.");
@@ -103,13 +101,11 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen overflow-y-scroll flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-6">
       <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white/80 shadow-xl backdrop-blur p-8">
-        {/* Logo / Header */}
         <div className="flex flex-col items-center">
           <Image src="/liwa.svg" alt="</> LIWA" width={170} height={40} />
           <h1 className="mt-4 text-xl font-semibold">Iniciar sesión</h1>
         </div>
 
-        {/* Formulario de login */}
         <form className="mt-6 space-y-4" onSubmit={onSignIn}>
           <div>
             <label className="block text-sm font-medium text-slate-700">Email</label>
@@ -124,9 +120,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Contraseña
-            </label>
+            <label className="block text-sm font-medium text-slate-700">Contraseña</label>
             <input
               type="password"
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
@@ -152,7 +146,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Reset password */}
         <div className="mt-8 border-t pt-6">
           <h2 className="text-base font-medium">¿Olvidaste tu contraseña?</h2>
           <form className="mt-3 flex gap-2" onSubmit={onSendReset}>
