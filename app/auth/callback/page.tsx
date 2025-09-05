@@ -17,97 +17,101 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     let mounted = true;
 
+    const parseUrl = () => {
+      const href =
+        typeof window !== "undefined" ? window.location.href : "http://localhost";
+      const url = new URL(href);
+      const q = url.searchParams; // ?code=...&type=recovery&token_hash=...
+      const hash = url.hash || ""; // #access_token=...&type=recovery
+      const h = new URLSearchParams(hash.replace(/^#/, ""));
+      const get = (k: string) => q.get(k) || h.get(k);
+      return {
+        url,
+        q,
+        h,
+        hash,
+        type: get("type"),
+        code: q.get("code"),
+        token_hash: get("token_hash"),
+      };
+    };
+
     (async () => {
-      // util: leer tipo desde query o hash
-      const getTypeFromUrl = () => {
-        const href =
-          typeof window !== "undefined" ? window.location.href : "http://localhost";
-        const url = new URL(href);
-        const q = url.searchParams;
-        const hash = url.hash || "";
-        const hParams = new URLSearchParams(hash.replace(/^#/, ""));
-        return { q, hash, type: q.get("type") || hParams.get("type") };
+      const { type, code, token_hash, hash } = parseUrl();
+
+      // 1) Intentar intercambio de sesión por todos los caminos soportados
+      let exchanged = false;
+      let lastErr: any = null;
+
+      const checkSession = async () => {
+        const { data } = await supabase.auth.getSession();
+        return !!data.session;
       };
 
-      try {
-        const href =
-          typeof window !== "undefined" ? window.location.href : "http://localhost";
-        const url = new URL(href);
-
-        const { q, hash, type } = getTypeFromUrl();
-
-        // === Intercambiar el enlace por sesión (manejo doble versión) ===
-        let exchError: any = null;
-        const code = q.get("code");
-
-        if (code) {
-          // tu lib actual espera string; si más adelante cambiara, probamos objeto como plan B
-          const res1 = await supabase.auth.exchangeCodeForSession(code as any);
-          if (res1?.error) {
-            // intento B por si la lib requiere { code }
-            const res2 = await supabase.auth.exchangeCodeForSession({ code } as any);
-            exchError = res2?.error || null;
-          }
-        } else if (hash) {
-          const { error } = await supabase.auth.exchangeCodeForSession(hash);
-          exchError = error || null;
-        } else {
-          exchError = new Error("No auth params found in URL");
-        }
-
-        if (exchError) throw exchError;
-
-        const { data } = await supabase.auth.getSession();
-        const hasSession = !!data.session;
-
-        if (type === "recovery") {
-          if (!mounted) return;
-          if (hasSession) {
-            setStage("recovery");
-            return;
-          }
-          // sin sesión → manda a login sin mostrar error
-          router.replace("/login?reason=recovery_no_session");
-          return;
-        }
-
-        if (!mounted) return;
-        setStage("done");
-        router.replace(hasSession ? "/dashboard" : "/login");
-      } catch (e) {
-        // === Fallback silencioso, sin mostrar pantalla de error ===
+      // A) PKCE moderno con ?code=...
+      if (!exchanged && code) {
         try {
-          const { data } = await supabase.auth.getSession();
-          const hasSession = !!data.session;
-
-          const { type } = (function () {
-            const href =
-              typeof window !== "undefined" ? window.location.href : "http://localhost";
-            const url = new URL(href);
-            const q = url.searchParams;
-            const hash = url.hash || "";
-            const hParams = new URLSearchParams(hash.replace(/^#/, ""));
-            return { type: q.get("type") || hParams.get("type") };
-          })();
-
-          if (hasSession) {
-            if (type === "recovery") {
-              if (!mounted) return;
-              setStage("recovery"); // muestra form de password
-              return;
-            }
-            router.replace("/dashboard");
-            return;
+          // Algunas versiones aceptan string, otras { code }
+          const r1 = await supabase.auth.exchangeCodeForSession(code as any);
+          if (r1?.error) {
+            const r2 = await supabase.auth.exchangeCodeForSession({ code } as any);
+            if (r2?.error) lastErr = r2.error;
+            else exchanged = true;
+          } else {
+            exchanged = true;
           }
-
-          // sin sesión: volvemos a login con motivo; NO mostramos error en pantalla
-          router.replace("/login?reason=pkce_mismatch");
-          return;
-        } catch {
-          router.replace("/login?reason=callback_fail");
-          return;
+        } catch (e) {
+          lastErr = e;
         }
       }
+
+      // B) Flow antiguo con #access_token=...
+      if (!exchanged && hash) {
+        try {
+          const { error } = await supabase.auth.exchangeCodeForSession(hash);
+          if (error) lastErr = error;
+          else exchanged = true;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+
+      // C) Fallback SSR: verifyOtp con token_hash (si el email lo trae)
+      if (!exchanged && token_hash) {
+        try {
+          const { error } = await supabase.auth.verifyOtp({
+            type: "recovery",
+            token_hash,
+          } as any);
+          if (error) lastErr = error;
+          else exchanged = true;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+
+      // 2) Flujo de salida sin mostrar pantallas de error
+      const hasSession = await checkSession();
+
+      // Rama de recuperación: mostrar el form si hay sesión; si no, a login
+      if (type === "recovery") {
+        if (hasSession) {
+          if (!mounted) return;
+          setStage("recovery");
+          return;
+        }
+        router.replace("/login?reason=recovery_no_session");
+        return;
+      }
+
+      // Resto de casos: redirige según sesión
+      if (hasSession) {
+        router.replace("/dashboard");
+        return;
+      }
+
+      // Si no hay sesión, vuelve a login con motivo (sin mostrar error en pantalla)
+      router.replace("/login?reason=callback_fail");
     })();
 
     return () => {
@@ -118,6 +122,7 @@ export default function AuthCallbackPage() {
   // Submit para cambiar contraseña en modo recovery
   const onSubmitNewPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (pwd.length < 8) return alert("La contraseña debe tener al menos 8 caracteres.");
     if (pwd !== pwd2) return alert("Las contraseñas no coinciden.");
 
@@ -126,6 +131,7 @@ export default function AuthCallbackPage() {
     router.replace("/login?reset=ok");
   };
 
+  // UI minimalista por estados (sin vista de error)
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4">
       <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white/80 shadow-xl backdrop-blur p-6">
@@ -142,6 +148,7 @@ export default function AuthCallbackPage() {
             <p className="text-slate-600 mt-2">
               Ingresa tu nueva contraseña y confírmala.
             </p>
+
             <form className="mt-4 space-y-4" onSubmit={onSubmitNewPassword}>
               <div>
                 <label className="block text-sm font-medium text-slate-700">
@@ -155,6 +162,7 @@ export default function AuthCallbackPage() {
                   placeholder="********"
                 />
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-slate-700">
                   Confirmar contraseña
@@ -167,6 +175,7 @@ export default function AuthCallbackPage() {
                   placeholder="********"
                 />
               </div>
+
               <button
                 type="submit"
                 className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-medium hover:opacity-90 transition"
