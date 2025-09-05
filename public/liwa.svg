@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="64" viewBox="0 0 256 64" fill="none">
+  <!-- Marca: color teal -->
+  <defs>
+    <style>
+      .teal{fill:#14B8A6}
+      .text{fill:#0F172A; font-family: Inter, Arial, sans-serif; font-weight: 700}
+    </style>
+  </defs>
+
+  <!-- Icono: brackets de “código” -->
+  <path class="teal" d="M24 18 L10 32 L24 46 l4.8-4.8L19.6 32 28.8 22.8 24 18Z"/>
+  <path class="teal" d="M232 18 l-4.8 4.8 9.2 9.2-9.2 9.2 4.8 4.8 14-14-14-14Z"/>
+
+  <!-- Palabra LIWA -->
+  <g transform="translate(48, 14)">
+    <text class="text" x="0" y="34" font-size="36">LIWA</text>
+  </g>
+</svg>
