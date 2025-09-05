@@ -19,12 +19,18 @@ export default function AuthCallbackPage() {
     let mounted = true;
 
     (async () => {
-      const hash = typeof window !== "undefined" ? window.location.hash : "";
-      const params = new URLSearchParams(hash.replace(/^#/, ""));
-      const type = params.get("type");
-      const err = params.get("error");
-      const errCode = params.get("error_code");
-      const errDesc = params.get("error_description");
+      const href =
+        typeof window !== "undefined" ? window.location.href : "http://localhost";
+      const url = new URL(href);
+      const hash = url.hash || "";                // e.g. #access_token=...&type=recovery
+      const q = url.searchParams;                 // e.g. ?code=...&type=recovery
+
+      // Detecta type y posibles errores desde query o hash
+      const hParams = new URLSearchParams(hash.replace(/^#/, ""));
+      const type = q.get("type") || hParams.get("type");
+      const err = q.get("error") || hParams.get("error");
+      const errCode = q.get("error_code") || hParams.get("error_code");
+      const errDesc = q.get("error_description") || hParams.get("error_description");
 
       if (err || errCode) {
         if (mounted) {
@@ -35,20 +41,36 @@ export default function AuthCallbackPage() {
       }
 
       try {
-        // 👈 PASO CLAVE: crea sesión en el navegador a partir del hash del email
-        const { error: exchError } = await supabase.auth.exchangeCodeForSession(hash);
+        // ===== CLAVE: intercambiar el enlace por sesión =====
+        // 1) Formato nuevo (PKCE): ?code=...
+        // 2) Formato antiguo (fragment): #access_token=...
+        const code = q.get("code");
+        let exchError: any = null;
+
+        if (code) {
+          ({ error: exchError } = await supabase.auth.exchangeCodeForSession({ code }));
+        } else if (hash) {
+          ({ error: exchError } = await supabase.auth.exchangeCodeForSession(hash));
+        } else {
+          throw new Error("No auth params found in URL");
+        }
         if (exchError) throw exchError;
 
         const { data } = await supabase.auth.getSession();
         const hasSession = !!data.session;
 
         if (type === "recovery") {
-          if (mounted) setStage(hasSession ? "recovery" : "error");
-          if (!hasSession && mounted) setMsg("No se pudo validar la sesión de recuperación. Solicita un nuevo enlace.");
+          if (mounted) {
+            if (hasSession) setStage("recovery");
+            else {
+              setMsg("No se pudo validar la sesión de recuperación. Solicita un nuevo enlace.");
+              setStage("error");
+            }
+          }
           return;
         }
 
-        // Otros tipos (signup/magiclink/verify) → decide adónde enviar
+        // Otros tipos (signup/magiclink/verify)
         if (mounted) {
           setStage("done");
           router.replace(hasSession ? "/dashboard" : "/login");
@@ -62,7 +84,9 @@ export default function AuthCallbackPage() {
       }
     })();
 
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [router, supabase]);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -76,10 +100,11 @@ export default function AuthCallbackPage() {
     if (error) return setMsg(error.message);
 
     setStage("done");
-    // 👇 cierra sesión y vuelve al login
-    await supabase.auth.signOut();
-    router.replace("/login?reset=ok");
+    await supabase.auth.signOut();          // cerrar sesión de recuperación
+    router.replace("/login?reset=ok");      // volver al login con aviso
   };
+
+  // ======= UI =======
 
   if (stage === "checking") {
     return (
