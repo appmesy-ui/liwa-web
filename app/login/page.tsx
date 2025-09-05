@@ -15,14 +15,21 @@ export default function LoginPage() {
     let cancelled = false;
 
     (async () => {
-      // Detectar si estás en el flujo de recuperación o callback
-      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      const hash =
+        typeof window !== "undefined" ? window.location.hash : "";
       const pathname =
         typeof window !== "undefined" ? window.location.pathname : "";
+
       const isRecovery = hash.includes("type=recovery");
       const isCallback = pathname.startsWith("/auth/callback");
 
-      // Si es recovery/callback, no hacemos redirect al dashboard
+      // 🔁 Si aterrizas con hash de recovery fuera de /auth/callback, te envío allí
+      if (isRecovery && !isCallback) {
+        router.replace(`/auth/callback${hash}`);
+        return;
+      }
+
+      // ⛔ No redirijas al dashboard durante recovery/callback
       if (isRecovery || isCallback) return;
 
       const { data } = await supabase.auth.getSession();
@@ -90,7 +97,7 @@ export default function LoginPage() {
               },
             }}
             providers={[]} // solo email + password
-            // 👇 Importante: manda siempre al callback (login/signup/reset)
+            // Importante: manda siempre al callback en login/signup/reset
             redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`}
             onlyThirdPartyProviders={false}
           />
