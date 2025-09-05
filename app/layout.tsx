@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   },
   description: "Plataforma de análisis y gestión operativa",
   icons: {
-    icon: "/liwa.svg", // favicon
+    icon: "/favicon.svg", // 👉 ahora usamos SOLO el </>
   },
 };
 
