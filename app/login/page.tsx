@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 import { useAuthSession } from "../../lib/auth/useAuthSession";
@@ -9,9 +9,10 @@ import { useAuthSession } from "../../lib/auth/useAuthSession";
 export default function LoginPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
-  const status = useAuthSession();
+  const status = useAuthSession(); // "loading" | "authed" | "unauthed"
+  const searchParams = useSearchParams();
 
-  // Anti doble navegación
+  // ---- util: navegación única (anti "vibración")
   const navigated = useRef(false);
   const safeReplace = (path: string) => {
     if (navigated.current) return;
@@ -19,7 +20,30 @@ export default function LoginPage() {
     router.replace(path);
   };
 
-  // Si YA está autenticado, redirige UNA vez y no renderices el formulario
+  // ---- forzar logout si llega ?logout=1
+  const forceLogout = searchParams?.get("logout") === "1";
+  useEffect(() => {
+    if (!forceLogout) return;
+    (async () => {
+      try {
+        await supabase.auth.signOut();
+      } catch {}
+      try {
+        // limpiar claves de supabase en este dominio
+        Object.keys(localStorage).forEach((k) => {
+          if (k.startsWith("sb-") || k.includes("supabase")) localStorage.removeItem(k);
+        });
+      } catch {}
+      // no navegamos; el hook actualizará el estado a "unauthed"
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceLogout]);
+
+  // ---- banners por query
+  const resetOk = searchParams?.get("reset") === "ok";
+  const reason = searchParams?.get("reason") || "";
+
+  // ---- si YA está autenticado, salimos a /dashboard (una sola vez)
   if (status === "authed") {
     safeReplace("/dashboard");
     return (
@@ -29,7 +53,7 @@ export default function LoginPage() {
     );
   }
 
-  // Cargando estado → skeleton (no muestres login aún para evitar flash)
+  // ---- mientras comprobamos, no mostramos el form (evita flash)
   if (status === "loading") {
     return (
       <main className="min-h-screen overflow-y-scroll grid place-items-center">
@@ -38,7 +62,7 @@ export default function LoginPage() {
     );
   }
 
-  // status === "unauthed" → ahora sí muestra el login
+  // ---- no autenticado: render del login
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
   const [loginMsg, setLoginMsg] = useState<string | null>(null);
@@ -58,8 +82,7 @@ export default function LoginPage() {
         password: pwd,
       });
       if (error) throw error;
-
-      // Cuando cambie el estado a 'authed', el render superior hará el replace (sin bucles)
+      // Cuando el hook pase a "authed", el render superior hará el replace.
     } catch (err: any) {
       setLoginMsg(err?.message || "No pudimos iniciar sesión.");
     } finally {
@@ -67,6 +90,7 @@ export default function LoginPage() {
     }
   };
 
+  // ---- reset password (envía email; tu template usa token_hash)
   const [resetEmail, setResetEmail] = useState("");
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -88,9 +112,7 @@ export default function LoginPage() {
       await supabase.auth.resetPasswordForEmail(resetEmail, {
         redirectTo: `${origin}/auth/callback?type=recovery`,
       });
-      setResetMsg(
-        "Te enviamos un email con el enlace para restablecer tu contraseña."
-      );
+      setResetMsg("Te enviamos un email para restablecer tu contraseña.");
     } catch (err: any) {
       setResetMsg(err?.message || "No pudimos enviar el correo de recuperación.");
     } finally {
@@ -101,11 +123,37 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen overflow-y-scroll flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-6">
       <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white/80 shadow-xl backdrop-blur p-8">
+        {/* Logo / Header */}
         <div className="flex flex-col items-center">
           <Image src="/liwa.svg" alt="</> LIWA" width={170} height={40} />
           <h1 className="mt-4 text-xl font-semibold">Iniciar sesión</h1>
         </div>
 
+        {/* Banners */}
+        <div className="mt-4 space-y-2">
+          {resetOk && (
+            <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
+              ¡Contraseña actualizada! Ya puedes iniciar sesión.
+            </p>
+          )}
+          {reason === "pkce_mismatch" && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              El enlace de recuperación se abrió fuera de la misma sesión. Vuelve a solicitarlo.
+            </p>
+          )}
+          {reason === "recovery_no_session" && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              No pudimos validar la recuperación. Solicita un nuevo enlace.
+            </p>
+          )}
+          {reason === "callback_fail" && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              No pudimos procesar el enlace. Intenta de nuevo.
+            </p>
+          )}
+        </div>
+
+        {/* Formulario de login */}
         <form className="mt-6 space-y-4" onSubmit={onSignIn}>
           <div>
             <label className="block text-sm font-medium text-slate-700">Email</label>
@@ -120,7 +168,9 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Contraseña</label>
+            <label className="block text-sm font-medium text-slate-700">
+              Contraseña
+            </label>
             <input
               type="password"
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
@@ -146,6 +196,7 @@ export default function LoginPage() {
           </button>
         </form>
 
+        {/* Reset password */}
         <div className="mt-8 border-t pt-6">
           <h2 className="text-base font-medium">¿Olvidaste tu contraseña?</h2>
           <form className="mt-3 flex gap-2" onSubmit={onSendReset}>
@@ -169,6 +220,10 @@ export default function LoginPage() {
               {resetMsg}
             </p>
           )}
+          <p className="mt-3 text-xs text-slate-500">
+            Si no puedes ver el formulario de login aquí, entra en{" "}
+            <code className="bg-slate-100 px-1 rounded">/login?logout=1</code> para limpiar tu sesión en este dominio.
+          </p>
         </div>
       </div>
     </main>
