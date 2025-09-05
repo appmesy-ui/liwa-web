@@ -19,13 +19,14 @@ export default function AuthCallbackPage() {
     let mounted = true;
 
     (async () => {
+      // URL completa y helpers
       const href =
         typeof window !== "undefined" ? window.location.href : "http://localhost";
       const url = new URL(href);
-      const hash = url.hash || "";                // e.g. #access_token=...&type=recovery
-      const q = url.searchParams;                 // e.g. ?code=...&type=recovery
+      const hash = url.hash || "";                // p.ej. #access_token=...&type=recovery
+      const q = url.searchParams;                 // p.ej. ?code=...&type=recovery
 
-      // Detecta type y posibles errores desde query o hash
+      // Detectar tipo y errores desde query o hash
       const hParams = new URLSearchParams(hash.replace(/^#/, ""));
       const type = q.get("type") || hParams.get("type");
       const err = q.get("error") || hParams.get("error");
@@ -41,7 +42,7 @@ export default function AuthCallbackPage() {
       }
 
       try {
-        // ===== CLAVE: intercambiar el enlace por sesión =====
+        // ===== Intercambiar el enlace por sesión =====
         // 1) Formato nuevo (PKCE): ?code=...
         // 2) Formato antiguo (fragment): #access_token=...
         const code = q.get("code");
@@ -120,61 +121,4 @@ export default function AuthCallbackPage() {
         <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow">
           <h1 className="text-xl font-semibold mb-2">Enlace inválido</h1>
           <p className="text-sm text-slate-600 mb-4">
-            {msg ?? "El enlace es inválido o ha expirado. Solicita uno nuevo desde la página de acceso."}
-          </p>
-          <button
-            onClick={() => router.replace("/login")}
-            className="w-full rounded-full bg-teal-500 px-4 py-2 font-medium text-white hover:bg-teal-600"
-          >
-            Ir al acceso
-          </button>
-        </div>
-      </main>
-    );
-  }
-
-  if (stage === "recovery") {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border bg-white p-6 shadow">
-          <h1 className="text-xl font-semibold mb-2">Nueva contraseña</h1>
-          <p className="text-sm text-slate-500 mb-4">Define tu nueva contraseña para continuar.</p>
-
-          <label className="block text-sm font-medium text-slate-700">Contraseña</label>
-          <input
-            type="password"
-            className="mt-1 mb-3 w-full rounded-lg border px-3 py-2"
-            value={pwd}
-            onChange={(e) => setPwd(e.target.value)}
-            placeholder="••••••••"
-            required
-            minLength={8}
-          />
-
-          <label className="block text-sm font-medium text-slate-700">Repetir contraseña</label>
-          <input
-            type="password"
-            className="mt-1 mb-3 w-full rounded-lg border px-3 py-2"
-            value={pwd2}
-            onChange={(e) => setPwd2(e.target.value)}
-            placeholder="••••••••"
-            required
-            minLength={8}
-          />
-
-          {msg && <p className="text-sm text-red-600 mb-3">{msg}</p>}
-
-          <button type="submit" className="w-full rounded-full bg-teal-500 px-4 py-2 font-medium text-white hover:bg-teal-600">
-            Guardar contraseña
-          </button>
-        </form>
-      </main>
-    );
-  }
-
-  return (
-    <main className="min-h-screen grid place-items-center p-6">
-      <p className="text-slate-600 text-sm">Redirigiendo…</p>
-    </main>
-  );
-}
+            {msg ?? "El enlace es inv
