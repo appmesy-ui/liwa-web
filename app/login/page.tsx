@@ -12,9 +12,28 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/dashboard");
-    });
+    let cancelled = false;
+
+    (async () => {
+      // Detectar si estás en el flujo de recuperación o callback
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      const pathname =
+        typeof window !== "undefined" ? window.location.pathname : "";
+      const isRecovery = hash.includes("type=recovery");
+      const isCallback = pathname.startsWith("/auth/callback");
+
+      // Si es recovery/callback, no hacemos redirect al dashboard
+      if (isRecovery || isCallback) return;
+
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled && data.session) {
+        router.replace("/dashboard");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router, supabase]);
 
   return (
@@ -71,7 +90,7 @@ export default function LoginPage() {
               },
             }}
             providers={[]} // solo email + password
-            // 👇 MUY IMPORTANTE: mandar SIEMPRE al callback (login/signup/reset)
+            // 👇 Importante: manda siempre al callback (login/signup/reset)
             redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`}
             onlyThirdPartyProviders={false}
           />
