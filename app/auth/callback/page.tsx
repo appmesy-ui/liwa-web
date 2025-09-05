@@ -14,98 +14,58 @@ export default function AuthCallbackPage() {
   const [pwd, setPwd] = useState("");
   const [pwd2, setPwd2] = useState("");
 
-  // Evita redirecciones dobles (parpadeo)
-  const alreadyNavigated = useRef(false);
+  // evitar redirecciones dobles
+  const navigated = useRef(false);
   const safeReplace = (path: string) => {
-    if (alreadyNavigated.current) return;
-    alreadyNavigated.current = true;
+    if (navigated.current) return;
+    navigated.current = true;
     router.replace(path);
   };
 
   useEffect(() => {
     let mounted = true;
 
-    const parseUrl = () => {
+    const getParams = () => {
       const href =
         typeof window !== "undefined" ? window.location.href : "http://localhost";
       const url = new URL(href);
-      const q = url.searchParams;           // ?code=...&type=...&token_hash=...
-      const hash = url.hash || "";          // #access_token=...&type=...
+      const q = url.searchParams;
+      const hash = url.hash || "";
       const h = new URLSearchParams(hash.replace(/^#/, ""));
       const get = (k: string) => q.get(k) || h.get(k);
       return {
-        q,
-        hash,
         type: get("type"),
-        code: q.get("code"),
         token_hash: get("token_hash"),
       };
     };
 
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      return !!data.session;
-    };
-
     (async () => {
-      const { type, code, token_hash, hash } = parseUrl();
+      const { type, token_hash } = getParams();
 
-      // 1) Intentar crear sesión por todas las vías
-      let exchanged = false;
-      try {
-        // A) PKCE: ?code=...
-        if (!exchanged && code) {
-          const r1: any = await supabase.auth.exchangeCodeForSession(code as any);
-          if (r1?.error) {
-            const r2: any = await supabase.auth.exchangeCodeForSession({ code } as any);
-            if (!r2?.error) exchanged = true;
-          } else {
-            exchanged = true;
-          }
-        }
-
-        // B) Hash antiguo: #access_token=...
-        if (!exchanged && hash) {
-          const { error } = await supabase.auth.exchangeCodeForSession(hash as any);
-          if (!error) exchanged = true;
-        }
-
-        // C) Fallback sin PKCE: ?token_hash=...
-        if (!exchanged && token_hash) {
-          const { error } = await supabase.auth.verifyOtp({
-            type: "recovery",
-            token_hash,
-          } as any);
-          if (!error) exchanged = true;
-        }
-      } catch {
-        // ignoramos, seguimos con control de sesión
-      }
-
-      const hasSession = await checkSession();
-
-      // 2) Rutas de salida (sin pantallas de error)
-      if (type === "recovery") {
-        if (hasSession) {
-          if (!mounted) return;
-          setStage("recovery"); // mostramos formulario de nueva contraseña
-          return;
-        }
-        safeReplace("/login?reason=recovery_no_session");
+      // Solo atendemos recuperación con token_hash (flujo fiable)
+      if (type !== "recovery" || !token_hash) {
+        // cualquier otro caso: a login
+        safeReplace("/login");
         return;
       }
 
-      if (hasSession) {
-        safeReplace("/dashboard");
+      // 1) Verificar el token y crear sesión temporal de recuperación
+      const { error } = await supabase.auth.verifyOtp({
+        type: "recovery",
+        token_hash,
+      } as any);
+
+      if (error) {
+        // si algo falla, de vuelta a login (sin pantallas de error)
+        safeReplace("/login?reason=recovery_token_invalid");
         return;
       }
 
-      safeReplace("/login?reason=callback_fail");
+      // 2) Mostrar formulario de nueva contraseña
+      if (mounted) setStage("recovery");
     })();
 
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [router, supabase]);
 
   // Guardar nueva contraseña
@@ -131,7 +91,7 @@ export default function AuthCallbackPage() {
 
         {stage === "recovery" && (
           <div>
-            <h1 className="text-xl font-semibold">Restablecer contraseña</h1>
+            <h1 className="text-xl font-semibold">Crear nueva contraseña</h1>
             <p className="text-slate-600 mt-2">
               Ingresa tu nueva contraseña y confírmala.
             </p>
