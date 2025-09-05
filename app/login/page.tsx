@@ -15,51 +15,34 @@ export default function LoginPage() {
     let cancelled = false;
 
     (async () => {
-      const hash =
-        typeof window !== "undefined" ? window.location.hash : "";
-      const pathname =
-        typeof window !== "undefined" ? window.location.pathname : "";
-
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      const pathname = typeof window !== "undefined" ? window.location.pathname : "";
       const isRecovery = hash.includes("type=recovery");
       const isCallback = pathname.startsWith("/auth/callback");
 
-      // 🔁 Si aterrizas con hash de recovery fuera de /auth/callback, te envío allí
       if (isRecovery && !isCallback) {
         router.replace(`/auth/callback${hash}`);
         return;
       }
 
-      // ⛔ No redirijas al dashboard durante recovery/callback
       if (isRecovery || isCallback) return;
 
       const { data } = await supabase.auth.getSession();
-      if (!cancelled && data.session) {
-        router.replace("/dashboard");
-      }
+      if (!cancelled && data.session) router.replace("/dashboard");
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [router, supabase]);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100">
       <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white/80 shadow-xl backdrop-blur p-8">
-        {/* Logo */}
         <div className="flex flex-col items-center">
           <Image src="/liwa.svg" alt="</> LIWA" width={170} height={48} priority />
         </div>
+        <h1 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-900">Acceso</h1>
+        <p className="mt-1 text-center text-sm text-slate-500">Entra con tu email y contraseña</p>
 
-        {/* Título */}
-        <h1 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-900">
-          Acceso
-        </h1>
-        <p className="mt-1 text-center text-sm text-slate-500">
-          Entra con tu email y contraseña
-        </p>
-
-        {/* Auth */}
         <div className="mt-6">
           <Auth
             supabaseClient={supabase}
@@ -67,14 +50,8 @@ export default function LoginPage() {
               theme: ThemeSupa,
               variables: {
                 default: {
-                  colors: {
-                    brand: "#14B8A6",
-                    brandAccent: "#0D9488",
-                  },
-                  radii: {
-                    inputBorderRadius: "12px",
-                    buttonBorderRadius: "9999px",
-                  },
+                  colors: { brand: "#14B8A6", brandAccent: "#0D9488" },
+                  radii: { inputBorderRadius: "12px", buttonBorderRadius: "9999px" },
                 },
               },
             }}
@@ -96,14 +73,12 @@ export default function LoginPage() {
                 },
               },
             }}
-            providers={[]} // solo email + password
-            // Importante: manda siempre al callback en login/signup/reset
+            providers={[]} 
             redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`}
             onlyThirdPartyProviders={false}
           />
         </div>
 
-        {/* Footer */}
         <p className="text-[11px] text-center text-slate-400 mt-6">
           © {new Date().getFullYear()} TecnoFab — LIWA
         </p>
