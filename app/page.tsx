@@ -1,8 +1,15 @@
-export default function Home() {
-  return (
-    <main style={{ padding: 24 }}>
-      <h1>Hola Liwa 👋</h1>
-      <p>Stack base listo. Siguiente: DB + RLS (Step 1).</p>
-    </main>
-  );
+import { redirect } from "next/navigation";
+import { getSupabaseServerClient } from "../lib/supabase/server";
+
+export default async function Home() {
+  const supabase = getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    redirect("/dashboard");
+  } else {
+    redirect("/login");
+  }
 }
