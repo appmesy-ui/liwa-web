@@ -12,7 +12,7 @@ export default function LoginPage() {
   const status = useAuthSession(); // "loading" | "authed" | "unauthed"
   const searchParams = useSearchParams();
 
-  // ---- util: navegación única (anti "vibración")
+  // ---- navegación única (anti "vibración")
   const navigated = useRef(false);
   const safeReplace = (path: string) => {
     if (navigated.current) return;
@@ -168,9 +168,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Contraseña
-            </label>
+            <label className="block text-sm font-medium text-slate-700">Contraseña</label>
             <input
               type="password"
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
