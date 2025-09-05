@@ -7,6 +7,12 @@ import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 
+// 👇 Metadata para SEO y título de la pestaña
+export const metadata = {
+  title: "LIWA — Acceso",
+  description: "Plataforma de análisis y gestión operativa",
+};
+
 export default function LoginPage() {
   const supabase = getSupabaseBrowserClient();
   const router = useRouter();
@@ -22,7 +28,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white/80 shadow-xl backdrop-blur p-8">
         {/* Logo */}
         <div className="flex flex-col items-center">
-          <Image src="/liwa.svg" alt="</>LIWA" width={170} height={48} priority />
+          <Image src="/liwa.svg" alt="</> LIWA" width={170} height={48} priority />
         </div>
 
         {/* Título */}
@@ -42,8 +48,8 @@ export default function LoginPage() {
               variables: {
                 default: {
                   colors: {
-                    brand: "#14B8A6",
-                    brandAccent: "#0D9488",
+                    brand: "#14B8A6", // Botón principal
+                    brandAccent: "#0D9488", // Hover
                   },
                   radii: {
                     inputBorderRadius: "12px",
@@ -72,7 +78,7 @@ export default function LoginPage() {
                 },
               },
             }}
-            providers={[]} // email + password
+            providers={[]} // solo email+password
             redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`}
             onlyThirdPartyProviders={false}
           />
