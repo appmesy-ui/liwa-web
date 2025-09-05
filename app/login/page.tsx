@@ -58,13 +58,11 @@ export default function LoginPage() {
                   email_label: "Email",
                   password_label: "Contraseña",
                   button_label: "Entrar",
-                  link_text: "¿Ya tienes cuenta? Inicia sesión",
                 },
                 sign_up: {
                   email_label: "Email",
                   password_label: "Contraseña",
                   button_label: "Crear cuenta",
-                  link_text: "¿No tienes cuenta? Regístrate",
                 },
                 forgotten_password: {
                   link_text: "¿Olvidaste tu contraseña?",
@@ -73,7 +71,8 @@ export default function LoginPage() {
               },
             }}
             providers={[]} // solo email + password
-            redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`}
+            // 👇 MUY IMPORTANTE: mandar SIEMPRE al callback (login/signup/reset)
+            redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`}
             onlyThirdPartyProviders={false}
           />
         </div>
