@@ -1,53 +1,36 @@
 "use client";
 
-import { useState } from "react";
-import { supabase } from "../../lib/supabaseClient";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Auth } from "@supabase/auth-ui-react";
+import { ThemeSupa } from "@supabase/auth-ui-shared";
+import { getSupabaseBrowserClient } from "../../lib/supabase/client"; // <-- ruta nueva
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const supabase = getSupabaseBrowserClient();
+  const router = useRouter();
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setMsg(null);
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo:
-          typeof window !== "undefined"
-            ? `${window.location.origin}/dashboard`
-            : undefined,
-      },
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) router.replace("/dashboard");
     });
-
-    setMsg(error ? error.message : "Listo ✅ Revisa tu correo para el enlace mágico.");
-    setLoading(false);
-  }
+  }, [router, supabase]);
 
   return (
-    <div className="max-w-md mx-auto mt-20 p-6 bg-white shadow rounded-xl">
-      <h2 className="text-lg font-bold mb-4">Iniciar sesión</h2>
-      <form onSubmit={handleLogin} className="space-y-4">
-        <input
-          type="email"
-          className="w-full p-2 border rounded"
-          placeholder="tu@email.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
+    <main className="min-h-screen grid place-items-center p-6">
+      <div className="w-full max-w-md rounded-2xl shadow p-6">
+        <h1 className="text-2xl font-semibold mb-4">LIWA — Acceso</h1>
+        <Auth
+          supabaseClient={supabase}
+          appearance={{ theme: ThemeSupa }}
+          providers={[]}  // solo email+password por ahora
+          redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`}
+          onlyThirdPartyProviders={false}
         />
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-indigo-600 text-white py-2 rounded disabled:opacity-60"
-        >
-          {loading ? "Enviando..." : "Enviar enlace mágico"}
-        </button>
-      </form>
-      {msg && <p className="mt-4 text-sm">{msg}</p>}
-    </div>
+        <p className="text-xs text-gray-500 mt-4">
+          Usa tu email y contraseña. (Luego añadimos SSO/Providers)
+        </p>
+      </div>
+    </main>
   );
 }
