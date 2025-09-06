@@ -1,11 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-html {
-  overflow-y: scroll; /* 🔑 fuerza siempre el scrollbar vertical */
-}
-
-body {
-  @apply bg-gray-50 text-gray-900;
-}
+/* app/globals.css — versión segura mínima */
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; min-height: 100%; background: #ffffff; }
+#__next { min-height: 100%; }
