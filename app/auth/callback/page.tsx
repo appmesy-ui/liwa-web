@@ -34,18 +34,32 @@ export default function AuthCallbackPage() {
       const hash = url.hash || "";
       const h = new URLSearchParams(hash.replace(/^#/, ""));
       const get = (k: string) => q.get(k) || h.get(k);
-      return { type: get("type"), token_hash: get("token_hash") };
+      return { type: get("type"), token_hash: get("token_hash"), code: get("code") };
     };
 
     (async () => {
-      const { type, token_hash } = getParams();
-      if (type !== "recovery" || !token_hash) {
-        safeReplace("/login");
+      const { type, token_hash, code } = getParams();
+
+      // Recovery por token_hash
+      if (type === "recovery" && token_hash) {
+        const { error } = await supabase.auth.verifyOtp({ type: "recovery", token_hash } as any);
+        if (error) { safeReplace("/signin?reason=recovery_token_invalid"); return; }
+        if (mounted) setStage("recovery");
         return;
       }
-      const { error } = await supabase.auth.verifyOtp({ type: "recovery", token_hash } as any);
-      if (error) { safeReplace("/login?reason=recovery_token_invalid"); return; }
-      if (mounted) setStage("recovery");
+
+      // Magic link / email ?code=
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) { safeReplace("/signin?reason=code_invalid"); return; }
+        safeReplace("/dashboard");
+        return;
+      }
+
+      // Sin tokens: decide destino
+      const { data } = await supabase.auth.getSession();
+      if (data.session) safeReplace("/dashboard");
+      else safeReplace("/signin");
     })();
 
     return () => { mounted = false; };
@@ -58,7 +72,7 @@ export default function AuthCallbackPage() {
     const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) return alert(error.message || "No se pudo actualizar la contraseña.");
     setStage("done");
-    safeReplace("/login?reset=ok");
+    safeReplace("/signin?reset=ok");
   };
 
   return (
@@ -70,6 +84,7 @@ export default function AuthCallbackPage() {
             <p className="text-slate-600 mt-2">Un momento por favor.</p>
           </div>
         )}
+
         {stage === "recovery" && (
           <div>
             <h1 className="text-xl font-semibold">Crear nueva contraseña</h1>
@@ -77,16 +92,21 @@ export default function AuthCallbackPage() {
             <form className="mt-4 space-y-4" onSubmit={onSubmitNewPassword}>
               <div>
                 <label className="block text-sm font-medium text-slate-700">Nueva contraseña</label>
-                <input type="password" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400" value={pwd} onChange={(e)=>setPwd(e.target.value)} placeholder="********" minLength={8}/>
+                <input type="password" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
+                       value={pwd} onChange={(e)=>setPwd(e.target.value)} placeholder="********" minLength={8}/>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700">Confirmar contraseña</label>
-                <input type="password" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400" value={pwd2} onChange={(e)=>setPwd2(e.target.value)} placeholder="********" minLength={8}/>
+                <input type="password" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
+                       value={pwd2} onChange={(e)=>setPwd2(e.target.value)} placeholder="********" minLength={8}/>
               </div>
-              <button type="submit" className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-medium hover:opacity-90 transition">Guardar contraseña</button>
+              <button type="submit" className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-medium hover:opacity-90 transition">
+                Guardar contraseña
+              </button>
             </form>
           </div>
         )}
+
         {stage === "done" && (
           <div className="text-center">
             <h1 className="text-xl font-semibold">Listo</h1>
