@@ -38,7 +38,7 @@ export default function AuthCallbackPage() {
     (async () => {
       const { type, token_hash, code } = getParams();
 
-      // Recovery con token_hash
+      // Recovery con token_hash (desde email)
       if (type === "recovery" && token_hash) {
         const { error } = await supabase.auth.verifyOtp({ type: "recovery", token_hash } as any);
         if (error) { safeReplace("/signin?reason=recovery_token_invalid"); return; }
@@ -46,7 +46,7 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      // Magic link / OAuth code
+      // Magic link / OAuth ?code=
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) { safeReplace("/signin?reason=code_invalid"); return; }
@@ -54,7 +54,7 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      // Sin tokens → fallback
+      // Sin tokens → decide
       const { data } = await supabase.auth.getSession();
       if (data.session) safeReplace("/dashboard");
       else safeReplace("/signin");
@@ -71,7 +71,7 @@ export default function AuthCallbackPage() {
     const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) return alert(error.message || "No se pudo actualizar la contraseña.");
 
-    // 🔔 Flash message en sessionStorage y redirect limpio
+    // Flash message para /signin
     if (typeof window !== "undefined") {
       sessionStorage.setItem("signin_flash", "reset_ok");
     }
