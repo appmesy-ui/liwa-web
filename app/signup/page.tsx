@@ -12,7 +12,6 @@ export default function SignUpPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
 
-  // Evitar doble redirección
   const redirected = useRef(false);
   const goDashOnce = () => {
     if (redirected.current) return;
@@ -20,19 +19,15 @@ export default function SignUpPage() {
     router.replace("/dashboard");
   };
 
-  // Si ya hay sesión, a dashboard
   useEffect(() => {
     let cancelled = false;
-
     supabase.auth.getSession().then(({ data }) => {
       if (!cancelled && data.session) goDashOnce();
     });
-
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (cancelled) return;
       if (event === "SIGNED_IN") goDashOnce();
     });
-
     return () => {
       cancelled = true;
       sub?.subscription?.unsubscribe();
@@ -75,47 +70,8 @@ export default function SignUpPage() {
                   colors: {
                     brand: "#0EA5E9",
                     brandAccent: "#1E40AF",
-                    inputBackground: "#0B1220",
-                    inputText: "#E5E7EB",
-                    messageText: "#93C5FD",
-                    anchorTextColor: "#93C5FD",
-                    defaultButtonText: "#FFFFFF",
-                  },
-                  radii: {
-                    borderRadiusButton: "14px",
-                    inputBorderRadius: "12px",
                   },
                 },
-              },
-              style: {
-                button: {
-                  background:
-                    "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
-                  color: "#FFFFFF",
-                  borderRadius: "14px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  boxShadow:
-                    "0 6px 18px rgba(34,139,230,0.35), inset 0 1px 0 rgba(255,255,255,0.12)",
-                  height: "44px",
-                },
-                container: { rowGap: "14px" },
-                input: {
-                  background: "#0B1220",
-                  border: "1px solid #334155",
-                  color: "#E5E7EB",
-                  borderRadius: "12px",
-                  height: "44px",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
-                },
-                label: { color: "#96A3B3", fontSize: "13px" },
-                anchor: { color: "#93C5FD", fontSize: "12px", opacity: 0.9 },
-                message: { color: "#93C5FD", fontSize: "12px" },
-              },
-              className: {
-                button:
-                  "hover:brightness-105 active:scale-[0.99] focus:ring-2 focus:ring-sky-400/40 focus:outline-none",
-                input:
-                  "focus:ring-2 focus:ring-sky-400/30 focus:border-sky-500/60 outline-none",
               },
             }}
             localization={{
@@ -123,13 +79,15 @@ export default function SignUpPage() {
                 sign_up: {
                   email_label: "Email",
                   password_label: "Contraseña",
-                  email_input_placeholder: "Tu email",
-                  password_input_placeholder: "Crea una contraseña",
                   button_label: "Crear cuenta",
-                  loading_button_label: "Creando…",
                   link_text: "¿Ya tienes cuenta? Inicia sesión",
                   confirmation_text:
                     "Revisa tu correo para confirmar y continuar.",
+                  // 👇 forzamos placeholders
+                  ...( {
+                    email_input_placeholder: "Tu email",
+                    password_input_placeholder: "Crea una contraseña",
+                  } as any ),
                 },
               },
             }}
