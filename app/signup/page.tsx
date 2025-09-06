@@ -12,7 +12,7 @@ export default function SignUpPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
 
-  // Evitar doble redirección si ya inicia sesión
+  // Evitar doble redirección
   const redirected = useRef(false);
   const goDashOnce = () => {
     if (redirected.current) return;
@@ -20,6 +20,7 @@ export default function SignUpPage() {
     router.replace("/dashboard");
   };
 
+  // Si ya hay sesión, a dashboard
   useEffect(() => {
     let cancelled = false;
 
@@ -118,30 +119,17 @@ export default function SignUpPage() {
               },
             }}
             localization={{
-              // cubro todas las claves posibles para esta vista
               variables: {
                 sign_up: {
-                  // etiquetas
                   email_label: "Email",
                   password_label: "Contraseña",
-                  // algunos builds usan estos nombres:
-                  email_input_label: "Email",
-                  password_input_label: "Contraseña",
-                  // placeholders
                   email_input_placeholder: "Tu email",
                   password_input_placeholder: "Crea una contraseña",
-                  // botones y enlaces
                   button_label: "Crear cuenta",
+                  loading_button_label: "Creando…",
                   link_text: "¿Ya tienes cuenta? Inicia sesión",
                   confirmation_text:
                     "Revisa tu correo para confirmar y continuar.",
-                },
-                // por si muestra cambios de vista a magic link
-                magic_link: {
-                  email_input_label: "Email",
-                  email_input_placeholder: "Tu email",
-                  button_label: "Enviar enlace",
-                  link_text: "¿Prefieres acceder con contraseña?",
                 },
               },
             }}
