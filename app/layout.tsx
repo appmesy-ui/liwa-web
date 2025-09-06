@@ -10,11 +10,7 @@ export const metadata: Metadata = {
   description: "Operaciones con LIWA",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
       <body>{children}</body>
