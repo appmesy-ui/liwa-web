@@ -1,11 +1,13 @@
 // app/login/layout.tsx
-import type { Metadata } from "next";
+export const dynamic = "force-dynamic";
+export const revalidate = false;
 
-export const metadata: Metadata = {
-  title: "LIWA — Acceso",
-  description: "Plataforma de análisis y gestión operativa",
-};
-
-export default function LoginLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+export default function LoginLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // Layout mínimo: no mete <html>/<body> (eso ya lo hace el root layout)
+  // No hace ningún fetch ni lógica que fuerce prerender.
+  return <section>{children}</section>;
 }
