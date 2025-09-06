@@ -7,7 +7,5 @@ export default function LoginLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Layout mínimo: no mete <html>/<body> (eso ya lo hace el root layout)
-  // No hace ningún fetch ni lógica que fuerce prerender.
   return <section>{children}</section>;
 }
