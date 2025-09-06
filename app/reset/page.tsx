@@ -54,4 +54,38 @@ export default function ResetPage() {
               type="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500"
+              placeholder="tucorreo@ejemplo.com"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={status === "sending"}
+            className="w-full rounded-lg px-4 py-2 border border-slate-200 bg-slate-900 text-white hover:opacity-90 disabled:opacity-60"
+          >
+            {status === "sending" ? "Enviando..." : "Enviar enlace"}
+          </button>
+        </form>
+
+        {msg && (
+          <div
+            className={`mt-4 text-sm ${status === "ok" ? "text-green-600" : "text-red-600"}`}
+          >
+            {msg}
+          </div>
+        )}
+
+        <div className="mt-6 flex items-center justify-between text-sm text-slate-600">
+          <Link href="/signin" className="hover:underline">
+            ← Volver a Sign in
+          </Link>
+          <Link href="/signup" className="hover:underline">
+            Crear cuenta
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
