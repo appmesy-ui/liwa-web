@@ -1,35 +1,18 @@
 // app/signin/page.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 
-// Fallback inline, por si no encuentra ningún archivo en /public
-function LiwaLogoInline(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 200 80" width={200} height={60} aria-label="LIWA" {...props}>
-      <g transform="translate(8,28) scale(0.65)" stroke="#00B3B3" strokeWidth={7} strokeLinecap="round" strokeLinejoin="round" fill="none">
-        <path d="M18 2 L6 18 L18 34" />
-        <path d="M28 34 L38 2" />
-        <path d="M48 2 L60 18 L48 34" />
-      </g>
-      <text x="65" y="55" fontFamily="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" fontSize="40">
-        <tspan fill="#FFFFFF" fontWeight={800}>LI</tspan>
-        <tspan fill="#C9CED6" fontWeight={700} dx={-8}>WA</tspan>
-      </text>
-    </svg>
-  );
-}
-
 export default function LoginPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
 
-  // Control de redirección
+  // Evitar doble redirección
   const redirected = useRef(false);
   const goDashOnce = () => {
     if (redirected.current) return;
@@ -37,9 +20,7 @@ export default function LoginPage() {
     router.replace("/dashboard");
   };
 
-  // Si falla la primera ruta, probamos otra y luego inline
-  const [logoSrc, setLogoSrc] = useState<"liwa-logo" | "liwa" | "inline">("liwa-logo");
-
+  // Chequear sesión activa
   useEffect(() => {
     let cancelled = false;
 
@@ -61,22 +42,16 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6">
       <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-md p-10 flex flex-col items-center text-center gap-6">
-        {/* Bloque logo + texto */}
+        {/* Logo + subtítulo */}
         <div className="flex flex-col items-center">
-          {logoSrc === "inline" ? (
-            <LiwaLogoInline />
-          ) : (
-            <Image
-              src={logoSrc === "liwa-logo" ? "/liwa-logo.svg" : "/liwa.svg"}
-              alt="LIWA"
-              width={200}
-              height={60}
-              priority
-              className="mx-auto"
-              onError={() => setLogoSrc(logoSrc === "liwa-logo" ? "liwa" : "inline")}
-            />
-          )}
-
+          <Image
+            src="/liwa-logo.svg" // o /liwa.svg si así lo tienes
+            alt="LIWA"
+            width={200}
+            height={60}
+            priority
+            className="mx-auto"
+          />
           <p className="mt-2 text-slate-400 text-xs md:text-sm">
             Inicia sesión para continuar.
           </p>
@@ -98,32 +73,64 @@ export default function LoginPage() {
               variables: {
                 default: {
                   colors: {
-                    brand: "#0EA5E9",
-                    brandAccent: "#1E40AF",
-                    inputBackground: "#0B1220",
+                    brand: "#0EA5E9",               // base azul
+                    brandAccent: "#1E40AF",         // hover/acento
+                    inputBackground: "#0B1220",     // campos oscuros
+                    inputBorder: "#334155",
                     inputText: "#E5E7EB",
                     messageText: "#93C5FD",
                     anchorTextColor: "#93C5FD",
-                    defaultButtonBackground: "#0EA5E9",
-                    defaultButtonBackgroundHover: "#1D4ED8",
                     defaultButtonText: "#FFFFFF",
                   },
                   radii: {
-                    borderRadiusButton: "12px",
-                    inputBorderRadius: "10px",
+                    borderRadiusButton: "14px",
+                    inputBorderRadius: "12px",
                   },
                 },
               },
               style: {
-                button: { background: "#0EA5E9", color: "#FFFFFF", borderRadius: "12px" },
+                // Botón con degradado + sombra + hover suave
+                button: {
+                  background:
+                    "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
+                  color: "#FFFFFF",
+                  borderRadius: "14px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  boxShadow:
+                    "0 6px 18px rgba(34,139,230,0.35), inset 0 1px 0 rgba(255,255,255,0.12)",
+                  height: "44px",
+                  transition: "transform .06s ease, box-shadow .2s ease",
+                },
+                // hack simple para “hover” (Auth UI usa inline styles; esto aplica como estado por clase)
+                container: {
+                  // espacio entre elementos del form
+                  rowGap: "14px",
+                },
                 input: {
                   background: "#0B1220",
                   border: "1px solid #334155",
                   color: "#E5E7EB",
-                  borderRadius: "10px",
+                  borderRadius: "12px",
+                  height: "44px",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
                 },
-                anchor: { color: "#93C5FD" },
-                message: { color: "#93C5FD" },
+                label: {
+                  color: "#96A3B3",
+                  fontSize: "13px",
+                },
+                anchor: {
+                  color: "#93C5FD",
+                  fontSize: "12px",
+                  opacity: 0.9,
+                },
+                message: { color: "#93C5FD", fontSize: "12px" },
+              },
+              // clases para animación rápida del botón (leve “press”)
+              className: {
+                button:
+                  "hover:brightness-105 active:scale-[0.99] focus:ring-2 focus:ring-sky-400/40 focus:outline-none",
+                input:
+                  "focus:ring-2 focus:ring-sky-400/30 focus:border-sky-500/60 outline-none",
               },
             }}
             localization={{
@@ -133,10 +140,16 @@ export default function LoginPage() {
                   password_label: "Contraseña",
                   button_label: "Entrar",
                 },
-                forgotten_password: { link_text: "¿Olvidaste tu contraseña?" },
+                forgotten_password: {
+                  link_text: "¿Olvidaste tu contraseña?",
+                },
               },
             }}
           />
+          {/* Afinar espacios de los enlaces del Auth */}
+          <div className="mt-3 space-y-2 text-center">
+            {/* Supabase ya renderiza los enlaces; este div solo asegura respiro */}
+          </div>
         </div>
       </div>
     </main>
