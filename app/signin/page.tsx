@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
@@ -10,8 +10,6 @@ import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const supabase = getSupabaseBrowserClient();
 
   const [msg, setMsg] = useState<string | null>(null);
@@ -43,23 +41,15 @@ export default function LoginPage() {
     };
   }, [router, supabase]);
 
-  // Capturar ?reset=ok, mostrar aviso y limpiar URL SIN navegar
+  // 🔔 Leer flash message desde sessionStorage (persistente aunque haya remount)
   useEffect(() => {
-    const isOk = searchParams.get("reset") === "ok";
-    if (!isOk) return;
-
-    setMsg("✅ Contraseña actualizada, inicia sesión con la nueva.");
-
-    // Limpiar el query param sin navigation (no remonta el componente)
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("reset");
-    const qs = params.toString();
-    const newUrl = qs ? `${pathname}?${qs}` : pathname;
-
-    if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", newUrl);
+    if (typeof window === "undefined") return;
+    const flash = sessionStorage.getItem("signin_flash");
+    if (flash === "reset_ok") {
+      setMsg("✅ Contraseña actualizada, inicia sesión con la nueva.");
+      sessionStorage.removeItem("signin_flash");
     }
-  }, [pathname, searchParams]);
+  }, []);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6">
@@ -74,9 +64,7 @@ export default function LoginPage() {
             priority
             className="mx-auto"
           />
-          <p className="mt-2 text-slate-400 text-xs md:text-sm">
-            Inicia sesión para continuar.
-          </p>
+          <p className="mt-2 text-slate-400 text-xs md:text-sm">Inicia sesión para continuar.</p>
         </div>
 
         {/* Aviso persistente y descartable (sin autocierre) */}
@@ -118,10 +106,7 @@ export default function LoginPage() {
                     anchorTextColor: "#93C5FD",
                     defaultButtonText: "#FFFFFF",
                   },
-                  radii: {
-                    borderRadiusButton: "14px",
-                    inputBorderRadius: "12px",
-                  },
+                  radii: { borderRadiusButton: "14px", inputBorderRadius: "12px" },
                 },
               },
               style: {
