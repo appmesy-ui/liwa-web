@@ -44,7 +44,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-md p-10 flex flex-col items-center text-center">
         {/* Logo LIWA */}
         <Image
-          src="/liwa-logo.svg"
+          src="/liwa.svg"   // 👈 mismo nombre que en public
           alt="LIWA"
           width={220}
           height={70}
