@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
-
+ 
 type Stage = "checking" | "ready";
 
 export default function DashboardPage() {
