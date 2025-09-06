@@ -1,4 +1,7 @@
+// app/auth/callback/page.tsx
 "use client";
+export const dynamic = "force-dynamic";
+export const revalidate = false;
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -26,8 +29,7 @@ export default function AuthCallbackPage() {
     let mounted = true;
 
     const getParams = () => {
-      const href =
-        typeof window !== "undefined" ? window.location.href : "http://localhost";
+      const href = typeof window !== "undefined" ? window.location.href : "http://localhost";
       const url = new URL(href);
       const q = url.searchParams;
       const hash = url.hash || "";
@@ -44,7 +46,6 @@ export default function AuthCallbackPage() {
 
       // Solo atendemos recuperación con token_hash (flujo fiable)
       if (type !== "recovery" || !token_hash) {
-        // cualquier otro caso: a login
         safeReplace("/login");
         return;
       }
@@ -56,7 +57,6 @@ export default function AuthCallbackPage() {
       } as any);
 
       if (error) {
-        // si algo falla, de vuelta a login (sin pantallas de error)
         safeReplace("/login?reason=recovery_token_invalid");
         return;
       }
@@ -65,7 +65,9 @@ export default function AuthCallbackPage() {
       if (mounted) setStage("recovery");
     })();
 
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [router, supabase]);
 
   // Guardar nueva contraseña
@@ -92,54 +94,8 @@ export default function AuthCallbackPage() {
         {stage === "recovery" && (
           <div>
             <h1 className="text-xl font-semibold">Crear nueva contraseña</h1>
-            <p className="text-slate-600 mt-2">
-              Ingresa tu nueva contraseña y confírmala.
-            </p>
+            <p className="text-slate-600 mt-2">Ingresa tu nueva contraseña y confírmala.</p>
 
             <form className="mt-4 space-y-4" onSubmit={onSubmitNewPassword}>
               <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Nueva contraseña
-                </label>
-                <input
-                  type="password"
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
-                  value={pwd}
-                  onChange={(e) => setPwd(e.target.value)}
-                  placeholder="********"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Confirmar contraseña
-                </label>
-                <input
-                  type="password"
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
-                  value={pwd2}
-                  onChange={(e) => setPwd2(e.target.value)}
-                  placeholder="********"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-medium hover:opacity-90 transition"
-              >
-                Guardar contraseña
-              </button>
-            </form>
-          </div>
-        )}
-
-        {stage === "done" && (
-          <div className="text-center">
-            <h1 className="text-xl font-semibold">Listo</h1>
-            <p className="text-slate-600 mt-2">Redirigiendo…</p>
-          </div>
-        )}
-      </div>
-    </main>
-  );
-}
+                <l
