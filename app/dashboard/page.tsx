@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
- 
+
 type Stage = "checking" | "ready";
 
 export default function DashboardPage() {
@@ -22,6 +22,7 @@ export default function DashboardPage() {
     router.replace(path);
   };
 
+  // proteger ruta
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -62,18 +63,19 @@ export default function DashboardPage() {
       <header className="border-b border-slate-800/80 bg-slate-900/40 backdrop-blur sticky top-0 z-10">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            {/* Logo LIWA */}
             <Image
-  src="/tecnofab.svg"        // o .png si lo tienes así
-  alt="TecnoFab"
-  width={120}                // ancho fijo  
-  height={32}                // alto proporcional
-  className="h-8 w-auto"     // altura 2rem, ancho auto
-  priority
-/>
-<span className="font-semibold tracking-wide">
-  TecnoFab • <span className="text-sky-400">LIWA</span>
-</span>
+              src="/liwa-logo.svg"
+              alt="LIWA"
+              width={120}
+              height={32}
+              className="h-8 w-auto object-contain"
+              priority
+            />
+            {/* Texto by TecnoFab */}
+            <span className="text-slate-400 text-sm">by TecnoFab</span>
           </div>
+
           <div className="flex items-center gap-3 text-sm">
             {email && <span className="hidden sm:block text-slate-300">{email}</span>}
             <button
