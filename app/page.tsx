@@ -1,15 +1,11 @@
+// app/page.tsx
+export const dynamic = "force-dynamic";
+export const revalidate = false;
+
 import { redirect } from "next/navigation";
-import { getSupabaseServerClient } from "../lib/supabase/server";
 
-export default async function Home() {
-  const supabase = getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    redirect("/dashboard");
-  } else {
-    redirect("/login");
-  }
+export default function Home() {
+  // Por defecto redirige a /login
+  // (si hay sesión, /login ya manda a /dashboard)
+  redirect("/login");
 }
