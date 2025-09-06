@@ -3,6 +3,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
@@ -89,10 +90,8 @@ export default function LoginPage() {
                 },
               },
               style: {
-                // Botón con degradado + sombra + hover suave
                 button: {
-                  background:
-                    "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
+                  background: "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
                   color: "#FFFFFF",
                   borderRadius: "14px",
                   border: "1px solid rgba(255,255,255,0.08)",
@@ -101,9 +100,7 @@ export default function LoginPage() {
                   height: "44px",
                   transition: "transform .06s ease, box-shadow .2s ease",
                 },
-                // hack simple para “hover” (Auth UI usa inline styles; esto aplica como estado por clase)
                 container: {
-                  // espacio entre elementos del form
                   rowGap: "14px",
                 },
                 input: {
@@ -125,7 +122,6 @@ export default function LoginPage() {
                 },
                 message: { color: "#93C5FD", fontSize: "12px" },
               },
-              // clases para animación rápida del botón (leve “press”)
               className: {
                 button:
                   "hover:brightness-105 active:scale-[0.99] focus:ring-2 focus:ring-sky-400/40 focus:outline-none",
@@ -146,9 +142,15 @@ export default function LoginPage() {
               },
             }}
           />
-          {/* Afinar espacios de los enlaces del Auth */}
-          <div className="mt-3 space-y-2 text-center">
-            {/* Supabase ya renderiza los enlaces; este div solo asegura respiro */}
+
+          {/* Enlaces controlados (nuestro “Forgot your password?” a /reset) */}
+          <div className="mt-4 flex items-center justify-between text-xs md:text-sm text-slate-300">
+            <Link href="/signup" className="hover:underline">
+              Crear cuenta
+            </Link>
+            <Link href="/reset" className="hover:underline">
+              Forgot your password?
+            </Link>
           </div>
         </div>
       </div>
