@@ -63,16 +63,16 @@ export default function DashboardPage() {
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Image
-              src="/tecnofab.svg"
-              alt="TecnoFab"
-              width={28}
-              height={28}
-              className="rounded-md"
-              priority
-            />
-            <span className="font-semibold tracking-wide">
-              TecnoFab • <span className="text-sky-400">LIWA</span>
-            </span>
+  src="/tecnofab.svg"        // o .png si lo tienes así
+  alt="TecnoFab"
+  width={120}                // ancho fijo
+  height={32}                // alto proporcional
+  className="h-8 w-auto"     // altura 2rem, ancho auto
+  priority
+/>
+<span className="font-semibold tracking-wide">
+  TecnoFab • <span className="text-sky-400">LIWA</span>
+</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
             {email && <span className="hidden sm:block text-slate-300">{email}</span>}
