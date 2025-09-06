@@ -65,7 +65,7 @@ export default function DashboardPage() {
             <Image
   src="/tecnofab.svg"        // o .png si lo tienes así
   alt="TecnoFab"
-  width={120}                // ancho fijo
+  width={120}                // ancho fijo  
   height={32}                // alto proporcional
   className="h-8 w-auto"     // altura 2rem, ancho auto
   priority
