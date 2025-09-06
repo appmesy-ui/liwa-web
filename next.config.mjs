@@ -2,9 +2,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // IMPORTANTÍSIMO:
-  // - No pongas `output: "export"` aquí.
-  // - No pongas `experimental: { ppr: true }` ni nada raro que fuerce export.
+
+  async redirects() {
+    return [
+      {
+        source: "/login",
+        destination: "/signin",
+        permanent: false, // 307
+      },
+    ];
+  },
 };
 
 export default nextConfig;
