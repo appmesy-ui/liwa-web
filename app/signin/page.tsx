@@ -1,7 +1,6 @@
-// app/signin/page.tsx
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
@@ -11,12 +10,14 @@ import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 export default function SigninPage() {
   const supabase = getSupabaseBrowserClient();
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true); // Track session check
 
-  // Si ya hay sesión, manda al dashboard
+  // Session check to redirect to /dashboard
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
+      setIsLoading(false); // Session check complete
       if (data.session) router.replace("/dashboard");
     });
     return () => {
@@ -29,100 +30,76 @@ export default function SigninPage() {
       ? window.location.origin
       : process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
+  // Custom theme for Supabase Auth UI
+  const customTheme = {
+    ...ThemeSupa,
+    variables: {
+      default: {
+        colors: {
+          brand: "#3b82f6", // Blue accent
+          brandAccent: "#2563eb",
+          inputBackground: "rgba(255, 255, 255, 0.9)",
+          inputBorder: "rgba(203, 213, 225, 0.5)",
+          inputText: "#1e293b",
+          inputLabelText: "#475569",
+          buttonText: "#ffffff",
+        },
+        radii: {
+          borderRadiusButton: "0.5rem",
+          inputBorderRadius: "0.5rem",
+        },
+        fonts: {
+          bodyFontFamily: "'Inter', sans-serif",
+          buttonFontFamily: "'Inter', sans-serif",
+          inputFontFamily: "'Inter', sans-serif",
+          labelFontFamily: "'Inter', sans-serif",
+        },
+      },
+    },
+  };
+
   return (
-    <main className="relative min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      {/* adorno sutil */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-32 -left-32 h-72 w-72 rounded-full bg-cyan-200/40 blur-3xl" />
-        <div className="absolute -bottom-32 -right-20 h-72 w-72 rounded-full bg-indigo-200/40 blur-3xl" />
-      </div>
-
-      {/* contenedor centrado */}
-      <div className="relative mx-auto flex min-h-screen max-w-7xl items-center justify-center px-4">
-        <div className="w-full max-w-md">
-          {/* tarjeta */}
-          <div className="rounded-2xl border border-slate-200/70 bg-white/90 shadow-xl backdrop-blur-md">
-            <div className="p-8">
-              {/* encabezado */}
-              <div className="flex items-center gap-3">
-                <Image
-                  src="/liwa.svg"
-                  alt="</> LIWA"
-                  width={28}
-                  height={28}
-                  priority
-                  className="h-7 w-7"
-                />
-                <span className="text-lg font-semibold tracking-tight text-slate-900">
-                  LIWA
-                </span>
-              </div>
-
-              <h1 className="mt-6 text-2xl font-semibold leading-none tracking-tight text-slate-900">
-                Accede a Liwa
-              </h1>
-              <p className="mt-2 text-sm text-slate-600">
-                Inicia sesión o recupera tu contraseña para continuar.
-              </p>
-
-              {/* Auth UI */}
-              <div className="mt-8">
-                <Auth
-                  supabaseClient={supabase}
-                  providers={[]}
-                  redirectTo={`${origin}/auth/callback`}
-                  // Estilo moderno
-                  appearance={{
-                    theme: ThemeSupa,
-                    variables: {
-                      default: {
-                        colors: {
-                          brand: "#0ea5e9", // cyan-500
-                          brandAccent: "#0284c7", // sky-600
-                          inputText: "#0f172a",
-                          inputBorder: "#e2e8f0",
-                          inputBackground: "#ffffff",
-                        },
-                        radii: {
-                          borderRadiusButton: "0.75rem",
-                          inputBorderRadius: "0.75rem",
-                        },
-                      },
-                    },
-                    className: {
-                      container: "space-y-4",
-                      anchor:
-                        "text-slate-700 hover:text-slate-900 underline underline-offset-4",
-                      button:
-                        "bg-sky-500 hover:bg-sky-600 text-white h-10 rounded-xl",
-                      input:
-                        "h-10 rounded-xl border-slate-300 focus:ring-2 focus:ring-sky-400",
-                      label: "text-slate-700 font-medium",
-                      message: "text-sm",
-                    },
-                  }}
-                />
-              </div>
-
-              {/* pie */}
-              <p className="mt-6 text-center text-xs text-slate-500">
-                ¿Problemas para ingresar?{" "}
-                <a
-                  href="mailto:soporte@liwa.app"
-                  className="font-medium text-slate-700 underline underline-offset-4 hover:text-slate-900"
-                >
-                  Contacta soporte
-                </a>
-              </p>
-            </div>
-          </div>
-
-          {/* aviso pequeño */}
-          <p className="mt-4 text-center text-xs text-slate-400">
-            Al continuar aceptas nuestros Términos y Política de Privacidad.
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white/30 shadow-2xl backdrop-blur-md border border-white/20 p-8 transform transition-all hover:scale-[1.02] duration-300">
+        {/* Logo and Header */}
+        <div className="flex flex-col items-center text-center">
+          <Image
+            src="/liwa.svg"
+            alt="</> LIWA"
+            width={170}
+            height={44}
+            priority
+            className="mb-4 transform hover:scale-105 transition-transform duration-200"
+          />
+          <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
+            Welcome to Liwa
+          </h1>
+          <p className="mt-2 text-sm text-gray-500 max-w-xs">
+            Sign in or reset your password to continue.
           </p>
         </div>
+
+        {/* Loading State */}
+        {isLoading ? (
+          <div className="mt-8 flex justify-center">
+            <div className="w-8 h-8 border-4 border-t-blue-500 border-gray-200 rounded-full animate-spin"></div>
+          </div>
+        ) : (
+          <div className="mt-8">
+            <Auth
+              supabaseClient={supabase}
+              providers={[]}
+              appearance={{ theme: customTheme }}
+              redirectTo={`${origin}/auth/callback`}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Optional Footer */}
+      <footer className="absolute bottom-4 text-center text-sm text-gray-500">
+        &copy; {new Date().getFullYear()} Liwa. All rights reserved.
+      </footer>
     </main>
   );
 }
