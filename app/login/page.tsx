@@ -1,7 +1,5 @@
 // app/login/page.tsx
 "use client";
-
-// Fuerza rendering dinámico y evita cualquier intento de ISR/SSG
 export const dynamic = "force-dynamic";
 export const revalidate = false;
 
@@ -22,9 +20,7 @@ export default function LoginPage() {
       if (!mounted) return;
       if (data.session) router.replace("/dashboard");
     });
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [router, supabase]);
 
   const origin =
@@ -35,24 +31,11 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100">
       <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white/80 shadow-xl backdrop-blur p-8">
-        {/* Logo */}
         <div className="flex flex-col items-center">
-          <Image
-            src="/liwa.svg"
-            alt="</> LIWA"
-            width={170}
-            height={44}
-            priority
-          />
-          <h1 className="mt-4 text-xl font-semibold text-slate-800">
-            Accede a Liwa
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Inicia sesión o recupera tu contraseña.
-          </p>
+          <Image src="/liwa.svg" alt="</> LIWA" width={170} height={44} priority />
+          <h1 className="mt-4 text-xl font-semibold text-slate-800">Accede a Liwa</h1>
+          <p className="mt-1 text-sm text-slate-500">Inicia sesión o recupera tu contraseña.</p>
         </div>
-
-        {/* Auth UI */}
         <div className="mt-6">
           <Auth
             supabaseClient={supabase}
