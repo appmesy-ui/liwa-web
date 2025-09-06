@@ -1,8 +1,8 @@
 // app/signin/page.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
@@ -11,6 +11,9 @@ import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 export default function LoginPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
+  const searchParams = useSearchParams();
+
+  const [msg, setMsg] = useState<string | null>(null);
 
   // Evitar doble redirección
   const redirected = useRef(false);
@@ -39,25 +42,39 @@ export default function LoginPage() {
     };
   }, [router, supabase]);
 
+  // Capturar ?reset=ok
+  useEffect(() => {
+    if (searchParams.get("reset") === "ok") {
+      setMsg("✅ Contraseña actualizada, inicia sesión con la nueva.");
+    }
+  }, [searchParams]);
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6">
       <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-md p-10 flex flex-col items-center text-center gap-6">
         {/* Logo + subtítulo */}
         <div className="flex flex-col items-center">
           <Image
-            src="/liwa-logo.svg" // o /liwa.svg si así lo tienes
+            src="/liwa-logo.svg"
             alt="LIWA"
             width={200}
             height={60}
             priority
             className="mx-auto"
           />
-            <p className="mt-2 text-slate-400 text-xs md:text-sm">
-              Inicia sesión para continuar.
-            </p>
+          <p className="mt-2 text-slate-400 text-xs md:text-sm">
+            Inicia sesión para continuar.
+          </p>
         </div>
 
-        {/* Formulario Supabase Auth centrado */}
+        {/* Mensaje de estado (reset password ok) */}
+        {msg && (
+          <div className="w-full rounded-lg bg-green-100 text-green-800 text-sm px-3 py-2 text-left">
+            {msg}
+          </div>
+        )}
+
+        {/* Formulario Supabase Auth */}
         <div className="w-full max-w-sm mx-auto">
           <Auth
             supabaseClient={supabase}
