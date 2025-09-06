@@ -45,7 +45,7 @@ export default function SignUpPage() {
         {/* Logo + subtítulo */}
         <div className="flex flex-col items-center">
           <Image
-            src="/liwa-logo.svg"   // usa el mismo logo del signin
+            src="/liwa-logo.svg"
             alt="LIWA"
             width={200}
             height={60}
@@ -61,7 +61,7 @@ export default function SignUpPage() {
         <div className="w-full max-w-sm mx-auto">
           <Auth
             supabaseClient={supabase}
-            providers={[]}              // sin OAuth por ahora
+            providers={[]}
             view="sign_up"
             redirectTo={
               typeof window !== "undefined"
@@ -89,7 +89,8 @@ export default function SignUpPage() {
               },
               style: {
                 button: {
-                  background: "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
+                  background:
+                    "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
                   color: "#FFFFFF",
                   borderRadius: "14px",
                   border: "1px solid rgba(255,255,255,0.08)",
@@ -123,8 +124,15 @@ export default function SignUpPage() {
                   email_label: "Email",
                   password_label: "Contraseña",
                   button_label: "Crear cuenta",
+                  link_text: "¿Ya tienes cuenta? Inicia sesión",
                   confirmation_text:
                     "Revisa tu correo para confirmar y continuar.",
+                },
+                // por si usa magic link en algún flujo
+                magic_link: {
+                  email_input_label: "Email",
+                  button_label: "Enviar enlace",
+                  link_text: "¿Prefieres acceder con contraseña?",
                 },
               },
             }}
