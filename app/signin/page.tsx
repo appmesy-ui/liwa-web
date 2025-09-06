@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
@@ -10,8 +10,9 @@ import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = getSupabaseBrowserClient();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const supabase = getSupabaseBrowserClient();
 
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -42,12 +43,24 @@ export default function LoginPage() {
     };
   }, [router, supabase]);
 
-  // Capturar ?reset=ok
+  // Capturar ?reset=ok, mostrar aviso persistente y limpiar la URL
   useEffect(() => {
-    if (searchParams.get("reset") === "ok") {
-      setMsg("✅ Contraseña actualizada, inicia sesión con la nueva.");
-    }
-  }, [searchParams]);
+    const isOk = searchParams.get("reset") === "ok";
+    if (!isOk) return;
+
+    setMsg("✅ Contraseña actualizada, inicia sesión con la nueva.");
+
+    // Limpiar el query param sin recargar ni mover scroll
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("reset");
+    const qs = params.toString();
+    const url = qs ? `${pathname}?${qs}` : pathname;
+    router.replace(url, { scroll: false });
+
+    // Autocierre opcional tras 10s (puedes subir/bajar el tiempo o quitarlo)
+    const t = setTimeout(() => setMsg(null), 10000);
+    return () => clearTimeout(t);
+  }, [pathname, router, searchParams]);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6">
@@ -67,10 +80,17 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Mensaje de estado (reset password ok) */}
+        {/* Aviso persistente y descartable */}
         {msg && (
-          <div className="w-full rounded-lg bg-green-100 text-green-800 text-sm px-3 py-2 text-left">
+          <div className="relative w-full rounded-lg bg-green-100/90 text-green-900 text-sm pl-3 pr-9 py-2 text-left border border-green-200">
             {msg}
+            <button
+              onClick={() => setMsg(null)}
+              aria-label="Cerrar aviso"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-green-900/80 hover:bg-white/50 hover:text-green-900 transition"
+            >
+              ✕
+            </button>
           </div>
         )}
 
