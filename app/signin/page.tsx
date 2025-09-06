@@ -1,18 +1,35 @@
 // app/signin/page.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 
+// Fallback inline, por si no encuentra ningún archivo en /public
+function LiwaLogoInline(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 200 80" width={200} height={60} aria-label="LIWA" {...props}>
+      <g transform="translate(8,28) scale(0.65)" stroke="#00B3B3" strokeWidth={7} strokeLinecap="round" strokeLinejoin="round" fill="none">
+        <path d="M18 2 L6 18 L18 34" />
+        <path d="M28 34 L38 2" />
+        <path d="M48 2 L60 18 L48 34" />
+      </g>
+      <text x="65" y="55" fontFamily="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" fontSize="40">
+        <tspan fill="#FFFFFF" fontWeight={800}>LI</tspan>
+        <tspan fill="#C9CED6" fontWeight={700} dx={-8}>WA</tspan>
+      </text>
+    </svg>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
 
-  // Evitar doble redirección
+  // Control de redirección
   const redirected = useRef(false);
   const goDashOnce = () => {
     if (redirected.current) return;
@@ -20,7 +37,9 @@ export default function LoginPage() {
     router.replace("/dashboard");
   };
 
-  // Chequear sesión activa
+  // Si falla la primera ruta, probamos otra y luego inline
+  const [logoSrc, setLogoSrc] = useState<"liwa-logo" | "liwa" | "inline">("liwa-logo");
+
   useEffect(() => {
     let cancelled = false;
 
@@ -44,14 +63,20 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-md p-10 flex flex-col items-center text-center gap-6">
         {/* Bloque logo + texto */}
         <div className="flex flex-col items-center">
-          <Image
-            src="/liwa-logo.svg"   // o "/liwa.svg" según como lo tengas
-            alt="LIWA"
-            width={200}
-            height={60}
-            priority
-            className="mx-auto"
-          />
+          {logoSrc === "inline" ? (
+            <LiwaLogoInline />
+          ) : (
+            <Image
+              src={logoSrc === "liwa-logo" ? "/liwa-logo.svg" : "/liwa.svg"}
+              alt="LIWA"
+              width={200}
+              height={60}
+              priority
+              className="mx-auto"
+              onError={() => setLogoSrc(logoSrc === "liwa-logo" ? "liwa" : "inline")}
+            />
+          )}
+
           <p className="mt-2 text-slate-400 text-xs md:text-sm">
             Inicia sesión para continuar.
           </p>
