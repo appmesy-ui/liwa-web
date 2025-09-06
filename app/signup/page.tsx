@@ -65,14 +65,6 @@ export default function SignUpPage() {
             }
             appearance={{
               theme: ThemeSupa,
-              variables: {
-                default: {
-                  colors: {
-                    brand: "#0EA5E9",
-                    brandAccent: "#1E40AF",
-                  },
-                },
-              },
             }}
             localization={{
               variables: {
@@ -83,7 +75,6 @@ export default function SignUpPage() {
                   link_text: "¿Ya tienes cuenta? Inicia sesión",
                   confirmation_text:
                     "Revisa tu correo para confirmar y continuar.",
-                  // 👇 forzamos placeholders
                   ...( {
                     email_input_placeholder: "Tu email",
                     password_input_placeholder: "Crea una contraseña",
