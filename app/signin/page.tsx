@@ -1,6 +1,7 @@
+// app/signin/page.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
@@ -11,7 +12,7 @@ export default function LoginPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
 
-  // Evitar redirección doble
+  // Evitar doble redirección
   const redirected = useRef(false);
   const goDashOnce = () => {
     if (redirected.current) return;
@@ -19,7 +20,7 @@ export default function LoginPage() {
     router.replace("/dashboard");
   };
 
-  // Chequear sesión
+  // Chequear sesión activa
   useEffect(() => {
     let cancelled = false;
 
@@ -39,46 +40,79 @@ export default function LoginPage() {
   }, [router, supabase]);
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-6">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200/60 bg-white shadow-xl backdrop-blur p-8">
-        {/* Logo centrado */}
-        <div className="flex flex-col items-center">
-          <Image
-            src="/tecnofab-logo.svg" // 👈 pon aquí tu logo de TecnoFab
-            alt="TecnoFab"
-            width={200}
-            height={60}
-            priority
-          />
-          <p className="mt-4 text-slate-600 text-center">
-            Inicia sesión o recupera tu contraseña para continuar.
-          </p>
-        </div>
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6">
+      <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-md p-10 flex flex-col items-center text-center">
+        {/* Logo LIWA */}
+        <Image
+          src="/liwa-logo.svg"
+          alt="LIWA"
+          width={220}
+          height={70}
+          priority
+        />
 
-        {/* Auth Supabase */}
-        <div className="mt-8">
+        {/* Texto de bienvenida */}
+        <p className="mt-4 text-slate-300 text-sm">
+          Inicia sesión para continuar.
+        </p>
+
+        {/* Formulario Supabase Auth */}
+        <div className="mt-8 w-full">
           <Auth
             supabaseClient={supabase}
             providers={[]}
-            appearance={{
-              theme: ThemeSupa,
-              style: {
-                button: { background: "#00b38a", borderRadius: "12px" }, // verde corporativo
-                input: { borderRadius: "10px" },
-              },
-            }}
+            view="sign_in"
             redirectTo={
               typeof window !== "undefined"
                 ? `${window.location.origin}/auth/callback`
                 : "https://liwa-web.vercel.app/auth/callback"
             }
-            view="sign_in"
+            appearance={{
+              theme: ThemeSupa,
+              variables: {
+                default: {
+                  colors: {
+                    brand: "#0EA5E9",
+                    brandAccent: "#1E40AF",
+                    inputBackground: "#0B1220",
+                    inputText: "#E5E7EB",
+                    messageText: "#93C5FD",
+                    anchorTextColor: "#93C5FD",
+                    defaultButtonBackground: "#0EA5E9",
+                    defaultButtonBackgroundHover: "#1D4ED8",
+                    defaultButtonText: "#FFFFFF",
+                  },
+                  radii: {
+                    borderRadiusButton: "12px",
+                    inputBorderRadius: "10px",
+                  },
+                },
+              },
+              style: {
+                button: {
+                  background: "#0EA5E9",
+                  color: "#FFFFFF",
+                  borderRadius: "12px",
+                },
+                input: {
+                  background: "#0B1220",
+                  border: "1px solid #334155",
+                  color: "#E5E7EB",
+                  borderRadius: "10px",
+                },
+                anchor: { color: "#93C5FD" },
+                message: { color: "#93C5FD" },
+              },
+            }}
             localization={{
               variables: {
                 sign_in: {
                   email_label: "Email",
                   password_label: "Contraseña",
                   button_label: "Entrar",
+                },
+                forgotten_password: {
+                  link_text: "¿Olvidaste tu contraseña?",
                 },
               },
             }}
