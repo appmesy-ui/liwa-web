@@ -9,7 +9,7 @@ import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 type Stage = "checking" | "ready";
 
 export default function DashboardPage() {
-  const router = useRouter();
+  const router = useRouter(); 
   const supabase = getSupabaseBrowserClient();
 
   const [stage, setStage] = useState<Stage>("checking");
