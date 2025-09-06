@@ -3,7 +3,6 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import Image from "next/image";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
@@ -53,9 +52,9 @@ export default function LoginPage() {
             priority
             className="mx-auto"
           />
-          <p className="mt-2 text-slate-400 text-xs md:text-sm">
-            Inicia sesión para continuar.
-          </p>
+            <p className="mt-2 text-slate-400 text-xs md:text-sm">
+              Inicia sesión para continuar.
+            </p>
         </div>
 
         {/* Formulario Supabase Auth centrado */}
@@ -74,9 +73,9 @@ export default function LoginPage() {
               variables: {
                 default: {
                   colors: {
-                    brand: "#0EA5E9",               // base azul
-                    brandAccent: "#1E40AF",         // hover/acento
-                    inputBackground: "#0B1220",     // campos oscuros
+                    brand: "#0EA5E9",
+                    brandAccent: "#1E40AF",
+                    inputBackground: "#0B1220",
                     inputBorder: "#334155",
                     inputText: "#E5E7EB",
                     messageText: "#93C5FD",
@@ -100,9 +99,7 @@ export default function LoginPage() {
                   height: "44px",
                   transition: "transform .06s ease, box-shadow .2s ease",
                 },
-                container: {
-                  rowGap: "14px",
-                },
+                container: { rowGap: "14px" },
                 input: {
                   background: "#0B1220",
                   border: "1px solid #334155",
@@ -111,15 +108,8 @@ export default function LoginPage() {
                   height: "44px",
                   boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
                 },
-                label: {
-                  color: "#96A3B3",
-                  fontSize: "13px",
-                },
-                anchor: {
-                  color: "#93C5FD",
-                  fontSize: "12px",
-                  opacity: 0.9,
-                },
+                label: { color: "#96A3B3", fontSize: "13px" },
+                anchor: { color: "#93C5FD", fontSize: "12px", opacity: 0.9 },
                 message: { color: "#93C5FD", fontSize: "12px" },
               },
               className: {
@@ -136,22 +126,10 @@ export default function LoginPage() {
                   password_label: "Contraseña",
                   button_label: "Entrar",
                 },
-                forgotten_password: {
-                  link_text: "¿Olvidaste tu contraseña?",
-                },
+                forgotten_password: { link_text: "¿Olvidaste tu contraseña?" },
               },
             }}
           />
-
-          {/* Enlaces controlados (nuestro “Forgot your password?” a /reset) */}
-          <div className="mt-4 flex items-center justify-between text-xs md:text-sm text-slate-300">
-            <Link href="/signup" className="hover:underline">
-              Crear cuenta
-            </Link>
-            <Link href="/reset" className="hover:underline">
-              Forgot your password?
-            </Link>
-          </div>
         </div>
       </div>
     </main>
