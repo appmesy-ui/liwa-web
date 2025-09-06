@@ -1,9 +1,6 @@
 // app/auth/callback/page.tsx
 "use client";
 
-export const dynamic = "force-dynamic";
-export const revalidate = false;
-
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "../../../lib/supabase/client";
@@ -42,7 +39,7 @@ export default function AuthCallbackPage() {
     (async () => {
       const { type, token_hash, code } = getParams();
 
-      // Recovery con token_hash
+      // Recovery con token_hash (email de reset)
       if (type === "recovery" && token_hash) {
         const { error } = await supabase.auth.verifyOtp({
           type: "recovery",
@@ -53,7 +50,6 @@ export default function AuthCallbackPage() {
           safeReplace("/signin?reason=recovery_token_invalid");
           return;
         }
-
         if (mounted) setStage("recovery");
         return;
       }
@@ -108,9 +104,7 @@ export default function AuthCallbackPage() {
             <p className="text-slate-600 mt-2">Ingresa tu nueva contraseña y confírmala.</p>
             <form className="mt-4 space-y-4" onSubmit={onSubmitNewPassword}>
               <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Nueva contraseña
-                </label>
+                <label className="block text-sm font-medium text-slate-700">Nueva contraseña</label>
                 <input
                   type="password"
                   className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
@@ -121,9 +115,7 @@ export default function AuthCallbackPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Confirmar contraseña
-                </label>
+                <label className="block text-sm font-medium text-slate-700">Confirmar contraseña</label>
                 <input
                   type="password"
                   className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
