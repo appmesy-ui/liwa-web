@@ -32,95 +32,91 @@ export default function SigninPage() {
   const origin = getSiteUrl();
 
   return (
-    <main className="relative min-h-screen bg-gradient-to-b from-emerald-50 via-white to-emerald-50">
-      {/* fondo sutil */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-[-6rem] h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-200/40 blur-3xl" />
-      </div>
-
-      {/* TARJETA CENTRADA */}
-      <div className="relative mx-auto flex min-h-screen max-w-7xl items-center justify-center px-4">
+    <main className="relative min-h-screen bg-[#0d1117] text-slate-200">
+      {/* contenedor centrado */}
+      <div className="mx-auto flex min-h-screen max-w-7xl items-center justify-center px-4">
         <div className="w-full max-w-sm">
-          <div className="rounded-3xl border border-emerald-200/50 bg-white/90 shadow-[0_20px_60px_-20px_rgba(16,185,129,0.35)] backdrop-blur">
-            <div className="p-8">
-              {/* Logo grande y marca */}
-              <div className="flex flex-col items-center text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100">
-                  <Image
-                    src="/liwa.svg"
-                    alt="</> LIWA"
-                    width={40}
-                    height={40}
-                    priority
-                    className="h-10 w-10"
-                  />
-                </div>
-                <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
-                  LIWA
-                </h1>
-                <p className="mt-1 text-sm text-slate-600">
-                  Accede para continuar
-                </p>
-              </div>
-
-              {/* Auth UI compacto */}
-              <div className="mt-7">
-                <Auth
-                  supabaseClient={supabase}
-                  providers={[]} // agrega Google si quieres: ["google"]
-                  redirectTo={`${origin}/auth/callback`}
-                  appearance={{
-                    theme: ThemeSupa,
-                    variables: {
-                      default: {
-                        colors: {
-                          brand: "#10b981",       // emerald-500
-                          brandAccent: "#059669", // emerald-600
-                          inputText: "#0f172a",
-                          inputBorder: "#e2e8f0",
-                          inputBackground: "#ffffff",
-                        },
-                        radii: {
-                          borderRadiusButton: "0.875rem",
-                          inputBorderRadius: "0.875rem",
-                        },
-                        space: {
-                          buttonPadding: "0.625rem 1rem",
-                          inputPadding: "0.625rem 0.875rem",
-                        },
-                      },
-                    },
-                    className: {
-                      container: "space-y-3",
-                      label: "text-slate-700 text-sm font-medium",
-                      input:
-                        "h-10 rounded-xl border-slate-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300",
-                      button:
-                        "h-10 rounded-xl font-medium shadow-sm hover:shadow transition-shadow",
-                      anchor:
-                        "text-emerald-700 hover:text-emerald-900 underline underline-offset-4",
-                      message: "text-sm",
-                    },
-                  }}
-                />
-              </div>
-
-              {/* ayuda */}
-              <p className="mt-6 text-center text-xs text-slate-500">
-                ¿Problemas para ingresar?{" "}
-                <a
-                  href="mailto:soporte@liwa.app"
-                  className="font-medium text-emerald-700 underline underline-offset-4 hover:text-emerald-900"
-                >
-                  Contacta soporte
-                </a>
-              </p>
+          {/* logo */}
+          <div className="mb-6 flex justify-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#161b22] ring-1 ring-[#30363d]">
+              <Image
+                src="/liwa.svg"
+                alt="LIWA"
+                width={28}
+                height={28}
+                className="opacity-90"
+                priority
+              />
             </div>
           </div>
 
-          {/* mini disclaimer */}
-          <p className="mt-4 text-center text-xs text-slate-400">
-            Al continuar aceptas nuestros Términos y Política de Privacidad.
+          {/* título */}
+          <h1 className="mb-3 text-center text-xl font-semibold text-slate-100">
+            Sign in to LIWA
+          </h1>
+
+          {/* tarjeta estilo GitHub */}
+          <div className="rounded-md border border-[#30363d] bg-[#161b22] shadow-lg">
+            <div className="p-6">
+              <Auth
+                supabaseClient={supabase}
+                providers={[]} // añade ["google"] si quieres OAuth
+                redirectTo={`${origin}/auth/callback`}
+                appearance={{
+                  theme: ThemeSupa,
+                  variables: {
+                    default: {
+                      colors: {
+                        brand: "#238636",        // botón verde GitHub
+                        brandAccent: "#2ea043",  // hover
+                        inputText: "#e6edf3",    // texto input
+                        inputBackground: "#0d1117",
+                        inputBorder: "#30363d",
+                        messageText: "#e6edf3",
+                        anchorTextColor: "#58a6ff",
+                      },
+                      radii: {
+                        inputBorderRadius: "6px",
+                        borderRadiusButton: "6px",
+                      },
+                      space: {
+                        buttonPadding: "0.625rem 1rem",
+                        inputPadding: "0.625rem 0.75rem",
+                      },
+                    },
+                  },
+                  className: {
+                    container: "space-y-4",
+                    label: "text-slate-200 text-sm font-medium",
+                    input:
+                      "h-10 bg-[#0d1117] border-[#30363d] text-slate-100 placeholder-slate-400 " +
+                      "focus:ring-2 focus:ring-[#1f6feb] focus:border-[#1f6feb]",
+                    button:
+                      "h-10 w-full bg-[#238636] hover:bg-[#2ea043] text-white font-medium " +
+                      "shadow-sm focus:ring-2 focus:ring-offset-0 focus:ring-[#2ea043]",
+                    anchor:
+                      "text-[#58a6ff] hover:underline underline-offset-2",
+                    message: "text-sm",
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          {/* bloque inferior con enlaces (como GitHub) */}
+          <div className="mt-4 rounded-md border border-[#30363d] bg-[#0d1117] px-6 py-4 text-sm text-slate-300">
+            New to LIWA?{" "}
+            <a
+              href="/signup"
+              className="text-[#58a6ff] hover:underline underline-offset-2"
+            >
+              Create an account
+            </a>
+          </div>
+
+          {/* footer mínimo */}
+          <p className="mt-6 text-center text-xs text-slate-500">
+            © {new Date().getFullYear()} TecnoFab · All rights reserved.
           </p>
         </div>
       </div>
