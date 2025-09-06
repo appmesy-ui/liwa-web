@@ -43,20 +43,23 @@ export default function LoginPage() {
     };
   }, [router, supabase]);
 
-  // Capturar ?reset=ok, mostrar aviso persistente y limpiar la URL
+  // Capturar ?reset=ok, mostrar aviso y limpiar URL SIN navegar
   useEffect(() => {
     const isOk = searchParams.get("reset") === "ok";
     if (!isOk) return;
 
     setMsg("✅ Contraseña actualizada, inicia sesión con la nueva.");
 
-    // Limpiar el query param sin recargar ni mover scroll
+    // Limpiar el query param sin navigation (no remonta el componente)
     const params = new URLSearchParams(searchParams.toString());
     params.delete("reset");
     const qs = params.toString();
-    const url = qs ? `${pathname}?${qs}` : pathname;
-    router.replace(url, { scroll: false });
-  }, [pathname, router, searchParams]);
+    const newUrl = qs ? `${pathname}?${qs}` : pathname;
+
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", newUrl);
+    }
+  }, [pathname, searchParams]);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6">
