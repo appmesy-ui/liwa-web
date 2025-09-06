@@ -56,10 +56,6 @@ export default function LoginPage() {
     const qs = params.toString();
     const url = qs ? `${pathname}?${qs}` : pathname;
     router.replace(url, { scroll: false });
-
-    // Autocierre opcional tras 10s (puedes subir/bajar el tiempo o quitarlo)
-    const t = setTimeout(() => setMsg(null), 10000);
-    return () => clearTimeout(t);
   }, [pathname, router, searchParams]);
 
   return (
@@ -80,7 +76,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Aviso persistente y descartable */}
+        {/* Aviso persistente y descartable (sin autocierre) */}
         {msg && (
           <div className="relative w-full rounded-lg bg-green-100/90 text-green-900 text-sm pl-3 pr-9 py-2 text-left border border-green-200">
             {msg}
