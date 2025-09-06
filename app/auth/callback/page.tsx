@@ -26,8 +26,7 @@ export default function AuthCallbackPage() {
     let mounted = true;
 
     const getParams = () => {
-      const href =
-        typeof window !== "undefined" ? window.location.href : "http://localhost";
+      const href = typeof window !== "undefined" ? window.location.href : "http://localhost";
       const url = new URL(href);
       const q = url.searchParams;
       const hash = url.hash || "";
@@ -39,17 +38,10 @@ export default function AuthCallbackPage() {
     (async () => {
       const { type, token_hash, code } = getParams();
 
-      // Recovery con token_hash (email de reset)
+      // Recovery con token_hash
       if (type === "recovery" && token_hash) {
-        const { error } = await supabase.auth.verifyOtp({
-          type: "recovery",
-          token_hash,
-        } as any);
-
-        if (error) {
-          safeReplace("/signin?reason=recovery_token_invalid");
-          return;
-        }
+        const { error } = await supabase.auth.verifyOtp({ type: "recovery", token_hash } as any);
+        if (error) { safeReplace("/signin?reason=recovery_token_invalid"); return; }
         if (mounted) setStage("recovery");
         return;
       }
@@ -57,10 +49,7 @@ export default function AuthCallbackPage() {
       // Magic link / OAuth code
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) {
-          safeReplace("/signin?reason=code_invalid");
-          return;
-        }
+        if (error) { safeReplace("/signin?reason=code_invalid"); return; }
         safeReplace("/dashboard");
         return;
       }
@@ -71,9 +60,7 @@ export default function AuthCallbackPage() {
       else safeReplace("/signin");
     })();
 
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [router, supabase]);
 
   const onSubmitNewPassword = async (e: React.FormEvent) => {
@@ -84,8 +71,12 @@ export default function AuthCallbackPage() {
     const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) return alert(error.message || "No se pudo actualizar la contraseña.");
 
+    // 🔔 Flash message en sessionStorage y redirect limpio
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("signin_flash", "reset_ok");
+    }
     setStage("done");
-    safeReplace("/signin?reset=ok");
+    safeReplace("/signin");
   };
 
   return (
@@ -125,10 +116,7 @@ export default function AuthCallbackPage() {
                   minLength={8}
                 />
               </div>
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-medium hover:opacity-90 transition"
-              >
+              <button type="submit" className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-medium hover:opacity-90 transition">
                 Guardar contraseña
               </button>
             </form>
