@@ -1,6 +1,6 @@
 <!-- public/liwa-logo.svg -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 80" width="260" height="80">
-  <rect width="260" height="80" fill="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80" width="200" height="80">
+  <rect width="200" height="80" fill="none"/>
 
   <!-- Icono </> pequeño y pegado al texto -->
   <g transform="translate(0,28) scale(0.65)" stroke="#00B3B3" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none">
@@ -9,11 +9,12 @@
     <path d="M48 2 L60 18 L48 34"/>   <!-- > -->
   </g>
 
-  <!-- Texto LIWA corrido y muy cerca del icono -->
-  <text x="52" y="55"
+  <!-- Texto LIWA corrido (movido un poco más a la derecha) -->
+  <text x="60" y="55"
         font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif"
         font-size="40">
     <tspan fill="#FFFFFF" font-weight="800">LI</tspan>
     <tspan fill="#C9CED6" font-weight="700" dx="-8">WA</tspan>
   </text>
 </svg>
+
