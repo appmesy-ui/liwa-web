@@ -1,5 +1,11 @@
-/* app/globals.css — versión segura mínima */
+/* app/globals.css */
+
+/* Tailwind core layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ajustes suaves globales */
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; min-height: 100%; background: #ffffff; }
-#__next { min-height: 100%; }
+html, body { height: 100%; }
