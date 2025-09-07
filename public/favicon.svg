@@ -1,0 +1,12 @@
+<!-- public/favicon.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 96 96">
+  <!-- Icono </> en turquesa, fondo transparente -->
+  <g stroke="#14B8A6" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- < -->
+    <path d="M28 48 L44 36 M28 48 L44 60"/>
+    <!-- / -->
+    <path d="M52 36 L44 60"/>
+    <!-- > -->
+    <path d="M68 48 L52 36 M68 48 L52 60"/>
+  </g>
+</svg>
