@@ -2,20 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-// IMPORTA TU CLIENTE EXISTENTE
 import { getSupabaseBrowserClient } from '../../../lib/supabase/client';
 
-type PendingEvent = {
+type PendingEventUI = {
   id: string;
   started_at: string;
-  line_id: string | null;
-  machine_id: string | null;
   status: 'pending' | 'classified';
+  line_name: string | null;
+  machine_name: string | null;
 };
 
 export default function PendingEventsPage() {
   const supabase = getSupabaseBrowserClient();
-  const [rows, setRows] = useState<PendingEvent[]>([]);
+  const [rows, setRows] = useState<PendingEventUI[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -24,11 +23,10 @@ export default function PendingEventsPage() {
       setLoading(true);
       setErr(null);
 
-      // 👈 OJO: usamos el schema('liwa')
       const { data, error } = await supabase
         .schema('liwa')
-        .from('v_pending_events')
-        .select('id, started_at, line_id, machine_id, status')
+        .from('v_pending_events_ui')
+        .select('*')
         .order('started_at', { ascending: false });
 
       if (error) setErr(error.message);
@@ -38,8 +36,15 @@ export default function PendingEventsPage() {
   }, [supabase]);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-semibold mb-6">Paros sin clasificar</h1>
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Paros sin clasificar</h1>
+        {!loading && (
+          <span className="rounded-full text-xs px-2 py-1 bg-red-600/20 text-red-300">
+            {rows.length}
+          </span>
+        )}
+      </div>
 
       {loading && <p className="opacity-70">Cargando…</p>}
       {err && <p className="text-red-400">Error: {err}</p>}
@@ -61,10 +66,10 @@ export default function PendingEventsPage() {
             </thead>
             <tbody>
               {rows.map((ev) => (
-                <tr key={ev.id} className="border-t border-white/10">
+                <tr key={ev.id} className="border-t border-white/10 hover:bg-white/5">
                   <td className="px-4 py-3">{new Date(ev.started_at).toLocaleString()}</td>
-                  <td className="px-4 py-3">{ev.line_id ?? '—'}</td>
-                  <td className="px-4 py-3">{ev.machine_id ?? '—'}</td>
+                  <td className="px-4 py-3">{ev.line_name ?? '—'}</td>
+                  <td className="px-4 py-3">{ev.machine_name ?? '—'}</td>
                   <td className="px-4 py-3">
                     <span className="inline-block rounded-full px-2 py-0.5 bg-yellow-500/20 text-yellow-300">
                       {ev.status}

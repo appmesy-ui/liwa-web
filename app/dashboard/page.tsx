@@ -4,6 +4,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import { getSupabaseBrowserClient } from "../../lib/supabase/client";
 
 type Stage = "checking" | "ready";
@@ -125,7 +126,10 @@ export default function DashboardPage() {
 
           <Panel title="Acciones rápidas">
             <div className="flex flex-wrap gap-3">
-              <Action>Paros sin clasificar</Action>
+              <Action href="/events/pending">
+                <span className="mr-2">Paros sin clasificar</span>
+                <PendingCount />
+              </Action>
               <Action>Reporte de turno</Action>
               <Action>Crear acción correctiva</Action>
               <Action>Ver micro-paros</Action>
@@ -180,10 +184,55 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Action({ children }: { children: React.ReactNode }) {
+function PendingCount() {
+  const supabase = getSupabaseBrowserClient();
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { count, error } = await supabase
+        .schema("liwa")
+        .from("v_pending_events")
+        .select("id", { count: "exact", head: true });
+      if (!error) setCount(count ?? 0);
+    })();
+  }, [supabase]);
+
+  if (count === null) {
+    return (
+      <span className="inline-flex h-5 w-5 animate-pulse rounded-full bg-slate-700" />
+    );
+  }
   return (
-    <button className="rounded-xl px-4 py-2 text-sm font-medium border border-slate-700 bg-slate-900/70 hover:bg-slate-800/80 hover:border-sky-700/60 hover:text-sky-200 transition">
+    <span className="inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs bg-red-600/20 text-red-300 border border-red-700/40">
+      {count}
+    </span>
+  );
+}
+
+function Action({
+  href,
+  onClick,
+  children,
+}: {
+  href?: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  const base =
+    "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium border border-slate-700 bg-slate-900/70 hover:bg-slate-800/80 hover:border-sky-700/60 hover:text-sky-200 transition";
+
+  if (href) {
+    return (
+      <Link href={href} className={base}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <button onClick={onClick} className={base}>
       {children}
     </button>
   );
 }
+
