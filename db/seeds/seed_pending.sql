@@ -49,21 +49,21 @@ BEGIN
     (v_org, 'L2', 'Línea 2')
   ON CONFLICT (org_id, code) DO NOTHING;
 
-  -- 3) Máquinas (3 por línea)
-  INSERT INTO machines (org_id, line_id, code, name, ideal_cycle_ms)
-  SELECT v_org, l.id, m.code, m.name, m.ideal_cycle_ms
-  FROM lines l
-  JOIN (
-    VALUES
-      ('L1','L1-M1','Mezcladora', 1200),
-      ('L1','L1-M2','Laminador', 1000),
-      ('L1','L1-M3','Freidora',   900),
-      ('L2','L2-M1','Mezcladora', 1100),
-      ('L2','L2-M2','Cortador',    950),
-      ('L2','L2-M3','Empaquetado', 800)
-  ) AS m(line_code, code, name, ideal_cycle_ms)
-    ON l.code = m.line_code AND l.org_id = v_org
-  ON CONFLICT (org_id, code) DO NOTHING;
+-- 3) Máquinas (3 por línea)  ✅ alias mx para no chocar con la variable m RECORD
+INSERT INTO machines (org_id, line_id, code, name, ideal_cycle_ms)
+SELECT v_org, l.id, mx.code, mx.name, mx.ideal_cycle_ms
+FROM lines l
+JOIN (
+  VALUES
+    ('L1','L1-M1','Mezcladora', 1200),
+    ('L1','L1-M2','Laminador', 1000),
+    ('L1','L1-M3','Freidora',   900),
+    ('L2','L2-M1','Mezcladora', 1100),
+    ('L2','L2-M2','Cortador',    950),
+    ('L2','L2-M3','Empaquetado', 800)
+) AS mx(line_code, code, name, ideal_cycle_ms)
+  ON l.code = mx.line_code AND l.org_id = v_org
+ON CONFLICT (org_id, code) DO NOTHING;
 
   -- 4) Turnos (últimos 3 días × 3 turnos: Mañana 06-14, Tarde 14-22, Noche 22-06)
   WITH days AS (
