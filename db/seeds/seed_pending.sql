@@ -110,12 +110,12 @@ ON CONFLICT (org_id, code) DO NOTHING;
   LOOP
     turn_minutes := GREATEST(1, (EXTRACT(epoch FROM (r.ends_at - r.starts_at))/60)::int);
 
-    FOR m IN
-      SELECT id, ideal_cycle_ms
-      FROM machines
-      WHERE org_id = v_org
-    LOOP
-      ideal_cycle_ms := COALESCE(m.ideal_cycle_ms, 1000);
+  FOR m IN
+  SELECT id, machines.ideal_cycle_ms
+  FROM machines
+  WHERE org_id = v_org
+LOOP
+  ideal_cycle_ms := COALESCE(m.ideal_cycle_ms, 1000);
       target_cpm := 60000.0 / ideal_cycle_ms;        -- ciclos/min ideal
       eff := 0.85 + random()*0.10;                   -- 85%-95%
       minutes_ok := turn_minutes - (10 + (random()*20)::int);
