@@ -1,15 +1,14 @@
-// app/auth/callback/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getSupabaseBrowserClient } from "../../../lib/supabase/client";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 type Stage = "checking" | "recovery" | "done";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const supabase = getSupabaseBrowserClient();
+  const supabase = createClientComponentClient();
 
   const [stage, setStage] = useState<Stage>("checking");
   const [pwd, setPwd] = useState("");
@@ -50,7 +49,8 @@ export default function AuthCallbackPage() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) { safeReplace("/signin?reason=code_invalid"); return; }
-        safeReplace("/dashboard");
+        // pequeña espera para que AuthSync vea la sesión en cliente
+        setTimeout(() => safeReplace("/dashboard"), 200);
         return;
       }
 
@@ -71,7 +71,6 @@ export default function AuthCallbackPage() {
     const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) return alert(error.message || "No se pudo actualizar la contraseña.");
 
-    // Flash message para /signin
     if (typeof window !== "undefined") {
       sessionStorage.setItem("signin_flash", "reset_ok");
     }
@@ -96,25 +95,11 @@ export default function AuthCallbackPage() {
             <form className="mt-4 space-y-4" onSubmit={onSubmitNewPassword}>
               <div>
                 <label className="block text-sm font-medium text-slate-700">Nueva contraseña</label>
-                <input
-                  type="password"
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
-                  value={pwd}
-                  onChange={(e) => setPwd(e.target.value)}
-                  placeholder="********"
-                  minLength={8}
-                />
+                <input type="password" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400" value={pwd} onChange={(e) => setPwd(e.target.value)} placeholder="********" minLength={8} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700">Confirmar contraseña</label>
-                <input
-                  type="password"
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
-                  value={pwd2}
-                  onChange={(e) => setPwd2(e.target.value)}
-                  placeholder="********"
-                  minLength={8}
-                />
+                <input type="password" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400" value={pwd2} onChange={(e) => setPwd2(e.target.value)} placeholder="********" minLength={8} />
               </div>
               <button type="submit" className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-medium hover:opacity-90 transition">
                 Guardar contraseña
