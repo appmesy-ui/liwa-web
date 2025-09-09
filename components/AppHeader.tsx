@@ -1,9 +1,28 @@
 "use client";
 
 import Image from "next/image";
-import { SignOutButton } from "@/components/SignOutButton";
 import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+
+/* Botón Cerrar sesión (inline) */
+function SignOutButton() {
+  const router = useRouter();
+  const supabase = createClientComponentClient();
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
+  return (
+    <button
+      onClick={signOut}
+      className="rounded-xl border border-slate-700 px-4 py-2 text-sm hover:bg-slate-900/60"
+      title="Cerrar sesión"
+    >
+      Cerrar sesión
+    </button>
+  );
+}
 
 type Props = {
   orgName?: string;
@@ -25,14 +44,13 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
   return (
     <header className="w-full border-b border-slate-800/60 px-6 py-4">
       <div className="max-w-6xl mx-auto flex items-center justify-between">
-        {/* Izquierda: logo + by TecnoFab */}
+        {/* Izquierda: logo + by TecnoFab + (volver en /pending) */}
         <div className="flex items-center gap-6">
           <a href="/dashboard" className="inline-flex items-center gap-4">
             <Image src="/liwa-logo.svg" alt="LIWA" width={64} height={64} priority />
             <span className="text-sm text-slate-500">by TecnoFab</span>
           </a>
 
-          {/* Botón volver: solo visible en /pending */}
           {pathname.startsWith("/pending") && (
             <a
               href="/dashboard"
@@ -62,4 +80,3 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
     </header>
   );
 }
-
