@@ -22,21 +22,13 @@ export default function LoginPage() {
     router.replace("/dashboard");
   };
 
-  // Chequear sesión activa
+  // Solo redirigir cuando ocurre SIGNED_IN
   useEffect(() => {
-    let cancelled = false;
-
-    supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled && data.session) goDashOnce();
-    });
-
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (cancelled) return;
       if (event === "SIGNED_IN") goDashOnce();
     });
 
     return () => {
-      cancelled = true;
       sub?.subscription?.unsubscribe();
     };
   }, [router, supabase]);
@@ -64,7 +56,9 @@ export default function LoginPage() {
             priority
             className="mx-auto"
           />
-          <p className="mt-2 text-slate-400 text-xs md:text-sm">Inicia sesión para continuar.</p>
+          <p className="mt-2 text-slate-400 text-xs md:text-sm">
+            Inicia sesión para continuar.
+          </p>
         </div>
 
         {/* Aviso persistente y descartable (sin autocierre) */}
@@ -106,19 +100,24 @@ export default function LoginPage() {
                     anchorTextColor: "#93C5FD",
                     defaultButtonText: "#FFFFFF",
                   },
-                  radii: { borderRadiusButton: "14px", inputBorderRadius: "12px" },
+                  radii: {
+                    borderRadiusButton: "14px",
+                    inputBorderRadius: "12px",
+                  },
                 },
               },
               style: {
                 button: {
-                  background: "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
+                  background:
+                    "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
                   color: "#FFFFFF",
                   borderRadius: "14px",
                   border: "1px solid rgba(255,255,255,0.08)",
                   boxShadow:
                     "0 6px 18px rgba(34,139,230,0.35), inset 0 1px 0 rgba(255,255,255,0.12)",
                   height: "44px",
-                  transition: "transform .06s ease, box-shadow .2s ease",
+                  transition:
+                    "transform .06s ease, box-shadow .2s ease",
                 },
                 container: { rowGap: "14px" },
                 input: {
@@ -156,3 +155,4 @@ export default function LoginPage() {
     </main>
   );
 }
+
