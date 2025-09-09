@@ -2,8 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
-import { useRouter } from "next/navigation";
+import AppHeader from "../../components/AppHeader";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 /* ===== Tipos ===== */
@@ -64,27 +63,6 @@ function displayOrUnclassified(s?: string | null) {
   return v ? v : "Sin clasificar";
 }
 
-/* ===== Botón Cerrar sesión (igual al dashboard) ===== */
-function SignOutButton() {
-  const router = useRouter();
-  const supabase = createClientComponentClient();
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login");
-  };
-
-  return (
-    <button
-      onClick={signOut}
-      className="rounded-xl border border-slate-700 px-4 py-2 text-sm hover:bg-slate-900/60"
-      title="Cerrar sesión"
-    >
-      Cerrar sesión
-    </button>
-  );
-}
-
 /* ===== Página ===== */
 export default function PendingPage() {
   const supabase = createClientComponentClient();
@@ -131,7 +109,7 @@ export default function PendingPage() {
     setHydrated(true);
   }, []);
 
-  /* Cargar email y organización (igual al dashboard) */
+  /* Cargar email y organización */
   useEffect(() => {
     if (!hydrated) return;
     (async () => {
@@ -273,34 +251,13 @@ export default function PendingPage() {
   /* ===== Render ===== */
   return (
     <main className="min-h-screen w-full bg-slate-950 text-slate-100">
-      {/* ===== Header (idéntico al dashboard) ===== */}
-      <header className="w-full border-b border-slate-800/60 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          {/* Izquierda: logo + by TecnoFab */}
-          <div className="flex items-center gap-4">
-            <a href="/dashboard" className="inline-flex items-center gap-4">
-              <Image src="/liwa-logo.svg" alt="LIWA" width={140} height={64} priority />
-              <span className="text-sm text-slate-500">by TecnoFab</span>
-            </a>
-          </div>
-
-          {/* Derecha: organización, usuario, rango, logout */}
-          <div className="flex items-center gap-4 text-sm text-slate-300">
-            {!hydrated ? null : (
-              <>
-                {orgName && <span className="font-medium text-slate-200">{orgName}</span>}
-                {userEmail && <span className="text-slate-400">{userEmail}</span>}
-                {fromISO && toISO && (
-                  <span className="text-slate-400">
-                    Rango · {dtf.format(new Date(fromISO))} → {dtf.format(new Date(toISO))}
-                  </span>
-                )}
-                <SignOutButton />
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      {/* ===== Header unificado (con botón volver en /pending) ===== */}
+      <AppHeader
+        orgName={orgName ?? null}
+        userEmail={userEmail ?? null}
+        fromISO={fromISO}
+        toISO={toISO}
+      />
 
       {/* ===== Contenido ===== */}
       <section className="max-w-6xl mx-auto px-6 py-8">
@@ -504,7 +461,9 @@ export default function PendingPage() {
                   ))}
                 </select>
                 {editing.requires_level_3 && (
-                  <div className="mt-1 text-xs text-amber-300">Este evento sugiere completar Nivel 3.</div>
+                  <div className="mt-1 text-xs text-amber-300">
+                    Este evento sugiere completar Nivel 3.
+                  </div>
                 )}
               </div>
 
