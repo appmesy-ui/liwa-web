@@ -1,4 +1,3 @@
-// app/signin/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -22,8 +21,12 @@ export default function LoginPage() {
     router.replace("/dashboard");
   };
 
-  // Solo redirigir cuando ocurre SIGNED_IN
+  // Chequear si ya hay sesión activa al entrar
   useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) goDashOnce();
+    });
+
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN") goDashOnce();
     });
@@ -33,7 +36,7 @@ export default function LoginPage() {
     };
   }, [router, supabase]);
 
-  // 🔔 Leer flash message desde sessionStorage (persistente aunque haya remount)
+  // 🔔 Leer flash message desde sessionStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
     const flash = sessionStorage.getItem("signin_flash");
@@ -61,7 +64,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Aviso persistente y descartable (sin autocierre) */}
+        {/* Aviso persistente y descartable */}
         {msg && (
           <div className="relative w-full rounded-lg bg-green-100/90 text-green-900 text-sm pl-3 pr-9 py-2 text-left border border-green-200">
             {msg}
@@ -96,47 +99,8 @@ export default function LoginPage() {
                     inputBackground: "#0B1220",
                     inputBorder: "#334155",
                     inputText: "#E5E7EB",
-                    messageText: "#93C5FD",
-                    anchorTextColor: "#93C5FD",
-                    defaultButtonText: "#FFFFFF",
-                  },
-                  radii: {
-                    borderRadiusButton: "14px",
-                    inputBorderRadius: "12px",
                   },
                 },
-              },
-              style: {
-                button: {
-                  background:
-                    "linear-gradient(180deg, #52A8FF 0%, #2383E2 100%)",
-                  color: "#FFFFFF",
-                  borderRadius: "14px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  boxShadow:
-                    "0 6px 18px rgba(34,139,230,0.35), inset 0 1px 0 rgba(255,255,255,0.12)",
-                  height: "44px",
-                  transition:
-                    "transform .06s ease, box-shadow .2s ease",
-                },
-                container: { rowGap: "14px" },
-                input: {
-                  background: "#0B1220",
-                  border: "1px solid #334155",
-                  color: "#E5E7EB",
-                  borderRadius: "12px",
-                  height: "44px",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
-                },
-                label: { color: "#96A3B3", fontSize: "13px" },
-                anchor: { color: "#93C5FD", fontSize: "12px", opacity: 0.9 },
-                message: { color: "#93C5FD", fontSize: "12px" },
-              },
-              className: {
-                button:
-                  "hover:brightness-105 active:scale-[0.99] focus:ring-2 focus:ring-sky-400/40 focus:outline-none",
-                input:
-                  "focus:ring-2 focus:ring-sky-400/30 focus:border-sky-500/60 outline-none",
               },
             }}
             localization={{
@@ -155,4 +119,3 @@ export default function LoginPage() {
     </main>
   );
 }
-
