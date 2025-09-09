@@ -1,3 +1,4 @@
+// app/signin/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -13,7 +14,7 @@ export default function LoginPage() {
 
   const [msg, setMsg] = useState<string | null>(null);
 
-  // Evitar doble redirección
+  // 🔒 Redirigir solo una vez
   const redirected = useRef(false);
   const goDashOnce = () => {
     if (redirected.current) return;
@@ -21,22 +22,22 @@ export default function LoginPage() {
     router.replace("/dashboard");
   };
 
-  // Chequear si ya hay sesión activa al entrar
+  // 1) Chequear sesión activa
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) goDashOnce();
     });
+  }, [supabase]);
 
+  // 2) Escuchar login nuevo
+  useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN") goDashOnce();
     });
+    return () => sub?.subscription?.unsubscribe();
+  }, [supabase]);
 
-    return () => {
-      sub?.subscription?.unsubscribe();
-    };
-  }, [router, supabase]);
-
-  // 🔔 Leer flash message desde sessionStorage
+  // Flash message
   useEffect(() => {
     if (typeof window === "undefined") return;
     const flash = sessionStorage.getItem("signin_flash");
@@ -49,7 +50,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6">
       <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-md p-10 flex flex-col items-center text-center gap-6">
-        {/* Logo + subtítulo */}
+        {/* Logo */}
         <div className="flex flex-col items-center">
           <Image
             src="/liwa-logo.svg"
@@ -64,7 +65,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Aviso persistente y descartable */}
+        {/* Mensaje flash */}
         {msg && (
           <div className="relative w-full rounded-lg bg-green-100/90 text-green-900 text-sm pl-3 pr-9 py-2 text-left border border-green-200">
             {msg}
@@ -78,7 +79,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* Formulario Supabase Auth */}
+        {/* Formulario Supabase */}
         <div className="w-full max-w-sm mx-auto">
           <Auth
             supabaseClient={supabase}
@@ -99,6 +100,13 @@ export default function LoginPage() {
                     inputBackground: "#0B1220",
                     inputBorder: "#334155",
                     inputText: "#E5E7EB",
+                    messageText: "#93C5FD",
+                    anchorTextColor: "#93C5FD",
+                    defaultButtonText: "#FFFFFF",
+                  },
+                  radii: {
+                    borderRadiusButton: "14px",
+                    inputBorderRadius: "12px",
                   },
                 },
               },
