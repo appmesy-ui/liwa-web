@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
-      <body className="min-h-screen antialiased">
+    <html lang="es" className="h-full bg-slate-950">
+      <body className="min-h-screen h-full bg-slate-950 text-slate-100 antialiased">
         <AuthSync />
         {children}
       </body>

@@ -6,7 +6,9 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
-/* ==== Tipos de datos ==== */
+/* =========================
+   Tipos
+========================= */
 type KpiRow = {
   line_code: string | null;
   planned_runtime_sec: number | null;
@@ -15,22 +17,17 @@ type KpiRow = {
   quality: number | null;
   oee: number | null;
 };
-
 type KpisResponse = { ok: boolean; rows: KpiRow[]; error?: string };
 type PendingCountResponse = { ok: boolean; count: number; error?: string };
 type SeriesRow = { bucket_ts: string; line_code: string | null; oee: number | null };
 type SeriesResp = { ok: boolean; rows: SeriesRow[]; error?: string };
 
-/* ==== Helpers ==== */
-function clamp01(n: number | null | undefined) {
-  if (n == null || isNaN(n as number)) return 0;
-  return Math.max(0, Math.min(1, Number(n)));
-}
-function pct(n: number | null | undefined) {
-  const v = clamp01(n);
-  return `${(v * 100).toFixed(1)}%`;
-}
-
+/* =========================
+   Helpers
+========================= */
+const clamp01 = (n?: number | null) =>
+  Math.max(0, Math.min(1, Number.isFinite(n as number) ? (n as number) : 0));
+const pct = (n?: number | null) => `${(clamp01(n) * 100).toFixed(1)}%`;
 const dtf = new Intl.DateTimeFormat("es-ES", {
   timeZone: "UTC",
   year: "2-digit",
@@ -40,20 +37,19 @@ const dtf = new Intl.DateTimeFormat("es-ES", {
   minute: "2-digit",
 });
 
-/* ==== Botón Cerrar sesión ==== */
+/* =========================
+   Sign out
+========================= */
 function SignOutButton() {
   const router = useRouter();
   const supabase = createClientComponentClient();
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login");
-  };
-
   return (
     <button
-      onClick={signOut}
-      className="rounded-xl border border-slate-700 px-4 py-2 text-sm hover:bg-slate-900/60"
+      onClick={async () => {
+        await supabase.auth.signOut();
+        router.push("/login");
+      }}
+      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10 transition"
       title="Cerrar sesión"
     >
       Cerrar sesión
@@ -61,11 +57,175 @@ function SignOutButton() {
   );
 }
 
-/* ==== Página ==== */
+/* =========================
+   Sparkline (mini gráfico)
+========================= */
+function Sparkline({
+  values,
+  width = 120,
+  height = 24,
+}: {
+  values: number[];
+  width?: number;
+  height?: number;
+}) {
+  const v = (values && values.length ? values : [0]).map((x) =>
+    Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0))
+  );
+  const n = v.length;
+  const pad = 1.5;
+  const w = width - pad * 2;
+  const h = height - pad * 2;
+
+  const max = Math.max(...v);
+  const min = Math.min(...v);
+  const range = Math.max(0.0001, max - min);
+  const stepX = n > 1 ? w / (n - 1) : 0;
+
+  const pts = v.map((val, i) => {
+    const x = pad + i * stepX;
+    const y = pad + (1 - (range ? (val - min) / range : 0)) * h;
+    return [x, y] as const;
+  });
+
+  const d = pts
+    .map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`))
+    .join(" ");
+
+  const last = v[n - 1] ?? 0;
+  const color = last < 0.75 ? "#f43f5e" : last < 0.85 ? "#f59e0b" : "#10b981";
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <defs>
+        <linearGradient id="sparkGrad" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.95" />
+          <stop offset="50%" stopColor="#22c55e" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="#eab308" stopOpacity="0.95" />
+        </linearGradient>
+      </defs>
+      <path
+        d={d}
+        fill="none"
+        stroke="url(#sparkGrad)"
+        strokeWidth={2.2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      {pts.length > 0 && (
+        <circle
+          cx={pts[pts.length - 1][0]}
+          cy={pts[pts.length - 1][1]}
+          r="2.6"
+          fill={color}
+        />
+      )}
+    </svg>
+  );
+}
+
+/* =========================
+   Tarjeta móvil por línea
+========================= */
+function LineCardMobile({
+  code,
+  a,
+  p,
+  q,
+  oee,
+  serie,
+}: {
+  code: string;
+  a: number;
+  p: number;
+  q: number;
+  oee: number;
+  serie: number[];
+}) {
+  const last = serie?.length ? serie[serie.length - 1] : oee;
+  const color =
+    last < 0.75
+      ? "bg-rose-400/20 text-rose-200"
+      : last < 0.85
+      ? "bg-amber-400/20 text-amber-200"
+      : "bg-emerald-400/20 text-emerald-200";
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">{code}</span>
+          <span className={`text-[11px] px-2 py-0.5 rounded-full ${color}`}>
+            {pct(oee)}
+          </span>
+        </div>
+        <div className="text-xs text-slate-400">
+          A {pct(a)} · P {pct(p)} · Q {pct(q)}
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="grow">
+          <Sparkline values={serie} width={180} height={36} />
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[11px] text-slate-400">OEE</div>
+          <div className="text-lg font-semibold">{pct(oee)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   KPI Card
+========================= */
+function KpiCard({
+  title,
+  valueNum,
+  value,
+  subtitle,
+}: {
+  title: string;
+  valueNum?: number | null;
+  value: string;
+  subtitle?: string;
+}) {
+  const v = clamp01(valueNum ?? 0);
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] backdrop-blur">
+      <div className="flex items-center justify-between">
+        <div className="text-slate-200/90 text-sm">{title}</div>
+        {subtitle ? (
+          <div className="text-[11px] px-2 py-1 rounded-lg border border-white/10 text-slate-300/80">
+            {subtitle}
+          </div>
+        ) : (
+          <span />
+        )}
+      </div>
+      <div className="mt-2 text-4xl font-semibold tracking-tight">{value}</div>
+      <div className="mt-4 h-2 w-full rounded-full bg-white/10 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-[width] duration-500"
+          style={{
+            width: `${v * 100}%`,
+            background:
+              "linear-gradient(90deg, rgba(59,130,246,.9) 0%, rgba(34,197,94,.95) 60%, rgba(234,179,8,.95) 100%)",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   Página
+========================= */
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
-  const [hydrated, setHydrated] = useState(false);
 
+  const [hydrated, setHydrated] = useState(false);
+  const [range, setRange] = useState<"24h" | "7d" | "30d">("24h");
   const [fromISO, setFromISO] = useState("");
   const [toISO, setToISO] = useState("");
 
@@ -74,23 +234,61 @@ export default function DashboardPage() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Header: org y usuario
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
 
-  // Sparklines
   const [seriesByLine, setSeriesByLine] = useState<Record<string, number[]>>({});
 
-  /* Rango inicial 24h */
-  useEffect(() => {
-    const to = new Date();
-    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    setToISO(to.toISOString());
-    setFromISO(from.toISOString());
-    setHydrated(true); // << solo después de setear fechas
-  }, []);
+  // --- filtro por línea ---
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
 
-  /* Cargar email y organización, solo en cliente */
+  const lineCodes = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.line_code) set.add(r.line_code.toUpperCase());
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  // cuando llegan filas por primera vez, selecciona todas
+  useEffect(() => {
+    if (lineCodes.length && selectedLines.size === 0) {
+      setSelectedLines(new Set(lineCodes));
+    }
+  }, [lineCodes, selectedLines.size]);
+
+  const toggleLine = (code: string) => {
+    setSelectedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedLines(new Set(lineCodes));
+  const selectNone = () => setSelectedLines(new Set());
+
+  const rowsFiltered = useMemo(() => {
+    if (!rows.length) return [];
+    if (!selectedLines.size) return [];
+    return rows.filter((r) => {
+      const c = (r.line_code || "").toUpperCase();
+      return selectedLines.has(c);
+    });
+  }, [rows, selectedLines]);
+
+  // establece rango inicial y recalcula from/to al cambiar el rango
+  useEffect(() => {
+    const now = new Date();
+    const from = new Date(now);
+    if (range === "24h") from.setDate(now.getDate() - 1);
+    if (range === "7d") from.setDate(now.getDate() - 7);
+    if (range === "30d") from.setDate(now.getDate() - 30);
+    setToISO(now.toISOString());
+    setFromISO(from.toISOString());
+    setHydrated(true);
+  }, [range]);
+
+  // usuario/org
   useEffect(() => {
     if (!hydrated) return;
     (async () => {
@@ -100,22 +298,17 @@ export default function DashboardPage() {
       } catch {
         setUserEmail(null);
       }
-
       try {
         const meRes = await fetch("/api/me");
         const me = await meRes.json();
-        if (me?.ok && Array.isArray(me.orgs) && me.orgs.length) {
-          setOrgName(me.orgs[0]?.name ?? null);
-        } else {
-          setOrgName(null);
-        }
+        setOrgName(me?.ok && me.orgs?.[0]?.name ? me.orgs[0].name : null);
       } catch {
         setOrgName(null);
       }
     })();
   }, [hydrated, supabase]);
 
-  /* Cargar KPIs + pendientes + series */
+  // datos
   useEffect(() => {
     if (!hydrated || !fromISO || !toISO) return;
     let mounted = true;
@@ -124,23 +317,10 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         setErr(null);
-
         const [kpisRes, pendingRes, seriesRes] = await Promise.all([
-          fetch(
-            `/api/kpis?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(
-              toISO
-            )}`
-          ),
-          fetch(
-            `/api/pending-count?from=${encodeURIComponent(
-              fromISO
-            )}&to=${encodeURIComponent(toISO)}`
-          ),
-          fetch(
-            `/api/kpis-series?from=${encodeURIComponent(
-              fromISO
-            )}&to=${encodeURIComponent(toISO)}`
-          ),
+          fetch(`/api/kpis?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`),
+          fetch(`/api/pending-count?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`),
+          fetch(`/api/kpis-series?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`),
         ]);
 
         const kpisJson = (await kpisRes.json()) as KpisResponse | any;
@@ -149,27 +329,21 @@ export default function DashboardPage() {
 
         if (!mounted) return;
 
-        if (!kpisJson?.ok) {
-          setErr(kpisJson?.error || "Error cargando KPIs");
-          setRows([]);
-        } else {
-          const sorted = (kpisJson.rows || [])
-            .slice()
-            .sort((a: KpiRow, b: KpiRow) =>
-              (a.line_code || "").localeCompare(b.line_code || "")
-            );
-          setRows(sorted);
-        }
+        setRows(
+          kpisJson?.ok
+            ? (kpisJson.rows || []).slice().sort((a: KpiRow, b: KpiRow) =>
+                (a.line_code || "").localeCompare(b.line_code || "")
+              )
+            : []
+        );
+        if (!kpisJson?.ok) setErr(kpisJson?.error || "Error cargando KPIs");
 
         setPendingCount(pendJson?.ok ? Number(pendJson.count ?? 0) : 0);
 
         const by: Record<string, number[]> = {};
         if (seriesJson?.ok) {
-          const arr: SeriesRow[] = seriesJson.rows || [];
-          arr.sort(
-            (a, b) =>
-              new Date(a.bucket_ts).getTime() - new Date(b.bucket_ts).getTime()
-          );
+          const arr = (seriesJson.rows || []) as SeriesRow[];
+          arr.sort((a, b) => new Date(a.bucket_ts).getTime() - new Date(b.bucket_ts).getTime());
           for (const r of arr) {
             const code = (r.line_code || "—").toUpperCase();
             if (!by[code]) by[code] = [];
@@ -193,129 +367,180 @@ export default function DashboardPage() {
     };
   }, [hydrated, fromISO, toISO]);
 
+  // agregados globales ponderados por tiempo planificado (con filtro)
   const agg = useMemo(() => {
-    if (!rows.length) return null;
-    const totPlan = rows.reduce((acc, r) => acc + (r.planned_runtime_sec ?? 0), 0);
+    const rs = rowsFiltered;
+    if (!rs.length) return null;
+    const totPlan = rs.reduce((acc, r) => acc + (r.planned_runtime_sec ?? 0), 0);
     const w = (r: KpiRow) => (r.planned_runtime_sec ?? 0) / (totPlan || 1);
-    const availability =
-      rows.reduce((a, r) => a + clamp01(r.availability) * w(r), 0) || 0;
-    const performance =
-      rows.reduce((a, r) => a + clamp01(r.performance) * w(r), 0) || 0;
-    const quality = rows.reduce((a, r) => a + clamp01(r.quality) * w(r), 0) || 0;
+    const availability = rs.reduce((a, r) => a + clamp01(r.availability) * w(r), 0);
+    const performance = rs.reduce((a, r) => a + clamp01(r.performance) * w(r), 0);
+    const quality = rs.reduce((a, r) => a + clamp01(r.quality) * w(r), 0);
     const oee = availability * performance * quality;
     return { availability, performance, quality, oee };
-  }, [rows]);
+  }, [rowsFiltered]);
+
+  // estilos botones rango
+  const rangeBtn = (r: "24h" | "7d" | "30d") =>
+    `px-3 py-1 rounded-lg text-xs ${
+      range === r
+        ? "bg-emerald-600 text-white"
+        : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+    }`;
 
   return (
-    <main className="min-h-screen w-full bg-slate-950 text-slate-100">
+    <main className="min-h-screen w-full text-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       {/* ===== Header ===== */}
-      <header className="w-full border-b border-slate-800/60 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          {/* Izquierda: logo más grande + by TecnoFab pequeño */}
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur px-5">
+        <div className="max-w-7xl mx-auto py-4 flex flex-wrap gap-3 items-center justify-between">
           <div className="flex items-center gap-4">
-            <Image
-              src="/liwa-logo.svg"
-              alt="LIWA"
-              width={140} // tamaño aumentado
-              height={64}
-              priority
-            />
-            <span className="text-sm text-slate-500">by TecnoFab</span>
+            <Image src="/liwa-logo.svg" alt="LIWA" width={132} height={56} priority />
+            <div className="hidden md:block text-sm text-slate-400">by TecnoFab</div>
           </div>
-
-          {/* Derecha: organización, usuario, rango, logout */}
-          <div className="flex items-center gap-4 text-sm text-slate-300">
-            {!hydrated ? null : (
-              <>
-                {orgName && (
-                  <span className="font-medium text-slate-200">{orgName}</span>
-                )}
-                {userEmail && <span className="text-slate-400">{userEmail}</span>}
-                {fromISO && toISO && (
-                  <span className="text-slate-400">
-                    Últimas 24h · {dtf.format(new Date(fromISO))} →{" "}
-                    {dtf.format(new Date(toISO))}
-                  </span>
-                )}
-                <SignOutButton />
-              </>
+          <div className="flex items-center gap-3 text-sm flex-wrap">
+            {orgName && <span className="text-slate-300">{orgName}</span>}
+            {userEmail && <span className="hidden md:block text-slate-400">{userEmail}</span>}
+            {fromISO && toISO && (
+              <span className="text-slate-400/80">
+                {range === "24h" ? "Últimas 24h" : range === "7d" ? "Últimos 7 días" : "Últimos 30 días"} ·{" "}
+                {dtf.format(new Date(fromISO))} → {dtf.format(new Date(toISO))}
+              </span>
             )}
+            <div className="flex items-center gap-1.5">
+              <button className={rangeBtn("24h")} onClick={() => setRange("24h")}>
+                24h
+              </button>
+              <button className={rangeBtn("7d")} onClick={() => setRange("7d")}>
+                7d
+              </button>
+              <button className={rangeBtn("30d")} onClick={() => setRange("30d")}>
+                30d
+              </button>
+            </div>
+            <SignOutButton />
           </div>
         </div>
       </header>
 
       {/* ===== Contenido ===== */}
-      <section className="max-w-6xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-semibold mb-6">Dashboard</h1>
+      <section className="max-w-7xl mx-auto px-5 py-8">
+        {/* KPIs globales (con filtro) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+          <KpiCard title="OEE" valueNum={agg?.oee} value={!hydrated || loading ? "…" : pct(agg?.oee)} subtitle="A × P × Q" />
+          <KpiCard title="Disponibilidad" valueNum={agg?.availability} value={!hydrated || loading ? "…" : pct(agg?.availability)} />
+          <KpiCard title="Rendimiento" valueNum={agg?.performance} value={!hydrated || loading ? "…" : pct(agg?.performance)} />
+        </div>
 
         {err && (
-          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200">
+          <div className="mb-6 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-rose-200">
             {err}
           </div>
         )}
 
-        {/* Tarjetas KPI */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-          <KpiCard
-            title="OEE"
-            valueNum={agg?.oee ?? null}
-            value={!hydrated || loading ? "…" : pct(agg?.oee ?? null)}
-            subtitle="A × P × Q"
-          />
-          <KpiCard
-            title="Disponibilidad"
-            valueNum={agg?.availability ?? null}
-            value={!hydrated || loading ? "…" : pct(agg?.availability ?? null)}
-          />
-          <KpiCard
-            title="Rendimiento"
-            valueNum={agg?.performance ?? null}
-            value={!hydrated || loading ? "…" : pct(agg?.performance ?? null)}
-          />
+        {/* Filtro por línea */}
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-slate-400">Filtrar líneas:</span>
+          {lineCodes.map((code) => {
+            const active = selectedLines.has(code);
+            return (
+              <button
+                key={code}
+                onClick={() => toggleLine(code)}
+                className={
+                  "px-3 py-1 rounded-full text-xs border transition " +
+                  (active
+                    ? "bg-emerald-600/90 border-emerald-500 text-white"
+                    : "bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700")
+                }
+              >
+                {code}
+              </button>
+            );
+          })}
+          <span className="mx-1 h-5 w-px bg-white/10" />
+          <button
+            onClick={selectAll}
+            className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700"
+          >
+            Todos
+          </button>
+          <button
+            onClick={selectNone}
+            className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700"
+          >
+            Ninguno
+          </button>
         </div>
 
-        {/* Tabla por línea + sparkline */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 mb-8">
-          <h2 className="text-lg font-medium mb-3">KPIs por línea</h2>
-          <div className="overflow-x-auto">
+        {/* KPIs por línea (responsive) */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 mb-8 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold tracking-tight">KPIs por línea</h2>
+            <div className="text-sm text-slate-400">
+              {loading ? "Cargando…" : `${rowsFiltered.length} línea${rowsFiltered.length === 1 ? "" : "s"}`}
+            </div>
+          </div>
+
+          {/* Vista DESKTOP: tabla */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="min-w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900/70 backdrop-blur z-10">
-                <tr className="text-slate-400">
+              <thead className="bg-slate-950/70">
+                <tr className="text-slate-400 whitespace-nowrap">
                   <th className="text-left py-2 pr-4">Línea</th>
-                  <th className="text-right py-2 px-4 w-48">A</th>
-                  <th className="text-right py-2 px-4 w-48">P</th>
-                  <th className="text-right py-2 px-4 w-48">Q</th>
-                  <th className="text-right py-2 px-4 w-48">OEE</th>
-                  <th className="text-right py-2 pl-4 w-[140px]">Tendencia</th>
+                  <th className="text-right py-2 px-4 w-28">A</th>
+                  <th className="text-right py-2 px-4 w-28">P</th>
+                  <th className="text-right py-2 px-4 w-28">Q</th>
+                  <th className="text-right py-2 px-4 w-28">OEE</th>
+                  <th className="text-right py-2 pl-4 w-[170px]">Tendencia</th>
                 </tr>
               </thead>
               <tbody>
-                {!rows.length && (
+                {!rowsFiltered.length && (
                   <tr>
-                    <td className="py-3 text-slate-400" colSpan={6}>
-                      {!hydrated || loading ? "Cargando…" : "Sin datos"}
+                    <td className="py-4 text-slate-400" colSpan={6}>
+                      {!hydrated || loading
+                        ? "Cargando…"
+                        : "Sin datos (ajusta el filtro de líneas)"}
                     </td>
                   </tr>
                 )}
-                {rows.map((r) => {
+                {rowsFiltered.map((r) => {
                   const code = (r.line_code || "—").toUpperCase();
                   const a = clamp01(r.availability),
                     p = clamp01(r.performance),
                     q = clamp01(r.quality),
                     oee = clamp01(r.oee);
                   const serie = seriesByLine[code] || [];
+                  const last = serie?.length ? serie[serie.length - 1] : oee;
+                  const delta = Math.abs(last - oee);
+
                   return (
                     <tr
                       key={code}
-                      className="border-t border-slate-800/70 hover:bg-slate-900/60 transition-colors"
+                      className="border-t border-white/10 hover:bg-white/[0.06] transition-colors"
                     >
                       <td className="py-3 pr-4 font-medium">{code}</td>
                       <td className="py-3 px-4 text-right">{pct(a)}</td>
                       <td className="py-3 px-4 text-right">{pct(p)}</td>
                       <td className="py-3 px-4 text-right">{pct(q)}</td>
                       <td className="py-3 px-4 text-right">{pct(oee)}</td>
-                      <td className="py-3 pl-4 text-right">
-                        <Sparkline values={serie} width={130} height={26} />
+                      <td className="py-3 pl-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <Sparkline values={serie} />
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs ${
+                              last > oee
+                                ? "text-emerald-400"
+                                : last < oee
+                                ? "text-rose-400"
+                                : "text-slate-400"
+                            }`}
+                            title="Variación vs punto anterior"
+                          >
+                            {last > oee ? "▲" : last < oee ? "▼" : "—"}{" "}
+                            {delta > 0 ? `${(delta * 100).toFixed(1)} pts` : "—"}
+                          </span>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -323,123 +548,57 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Vista MÓVIL: tarjetas */}
+          <div className="md:hidden">
+            {!rowsFiltered.length ? (
+              <div className="py-3 text-slate-400">
+                {!hydrated || loading
+                  ? "Cargando…"
+                  : "Sin datos (ajusta el filtro de líneas)"}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {rowsFiltered.map((r) => {
+                  const code = (r.line_code || "—").toUpperCase();
+                  const a = clamp01(r.availability),
+                    p = clamp01(r.performance),
+                    q = clamp01(r.quality),
+                    oee = clamp01(r.oee);
+                  const serie = seriesByLine[code] || [];
+                  return (
+                    <LineCardMobile
+                      key={code}
+                      code={code}
+                      a={a}
+                      p={p}
+                      q={q}
+                      oee={oee}
+                      serie={serie}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Bloque pendientes + CTA */}
-        <div className="flex items-center justify-between">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 px-5 py-4">
-            <div className="text-sm text-slate-400">Paros sin clasificar</div>
-            <div className="text-3xl font-semibold mt-1">
+        {/* Pendientes */}
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+            <div className="text-sm text-slate-300/80">Paros sin clasificar</div>
+            <div className="text-3xl font-semibold mt-1 tracking-tight">
               {!hydrated || loading ? "…" : pendingCount}
             </div>
           </div>
           <a
             href="/pending"
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-5 py-3 transition"
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-5 py-3 transition shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]"
           >
             Ver pendientes <span className="text-sm opacity-80">→</span>
           </a>
         </div>
       </section>
     </main>
-  );
-}
-
-/* ==== UI helpers ==== */
-function KpiCard(props: {
-  title: string;
-  valueNum?: number | null;
-  value: string;
-  subtitle?: string;
-}) {
-  const { title, value, valueNum, subtitle } = props;
-  const p = clamp01(valueNum ?? 0);
-
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-      <div className="flex items-center justify-between">
-        <div className="text-slate-300 text-sm">{title}</div>
-        {subtitle ? (
-          <div className="text-xs px-2 py-1 rounded-lg border border-slate-700 text-slate-400">
-            {subtitle}
-          </div>
-        ) : (
-          <span />
-        )}
-      </div>
-      <div className="mt-2 text-4xl font-semibold">{value}</div>
-      <div className="mt-4 h-2 w-full rounded-full bg-slate-800 overflow-hidden">
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${p * 100}%`,
-            background:
-              "linear-gradient(90deg, rgba(16,185,129,0.9) 0%, rgba(34,197,94,0.9) 50%, rgba(59,130,246,0.9) 100%)",
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function Sparkline({
-  values,
-  width = 120,
-  height = 24,
-}: {
-  values: number[];
-  width?: number;
-  height?: number;
-}) {
-  const v = (values && values.length ? values : [0]).map(clamp01);
-  const n = v.length;
-  const pad = 1.5;
-  const w = width - pad * 2;
-  const h = height - pad * 2;
-
-  const max = Math.max(...v);
-  const min = Math.min(...v);
-  const range = Math.max(0.0001, max - min);
-  const stepX = n > 1 ? w / (n - 1) : 0;
-
-  const pts = v.map((val, i) => {
-    const x = pad + i * stepX;
-    const y = pad + (1 - (range ? (val - min) / range : 0)) * h;
-    return [x, y] as const;
-  });
-
-  const d = pts
-    .map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`))
-    .join(" ");
-
-  const last = v[n - 1] ?? 0;
-  const color = last < 0.75 ? "#f43f5e" : last < 0.9 ? "#f59e0b" : "#10b981";
-
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      <defs>
-        <linearGradient id="sparkGrad" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0%" stopColor="#10b981" stopOpacity="0.7" />
-          <stop offset="60%" stopColor="#22c55e" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.9" />
-        </linearGradient>
-      </defs>
-      <path
-        d={d}
-        fill="none"
-        stroke="url(#sparkGrad)"
-        strokeWidth="2"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      {pts.length > 0 && (
-        <circle
-          cx={pts[pts.length - 1][0]}
-          cy={pts[pts.length - 1][1]}
-          r="2.5"
-          fill={color}
-        />
-      )}
-    </svg>
   );
 }

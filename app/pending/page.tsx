@@ -2,496 +2,404 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import AppHeader from "../../components/AppHeader";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { useRouter } from "next/navigation";
 
-/* ===== Tipos ===== */
 type PendingRow = {
   id: string;
-  org_id: string | null;
   line_code: string | null;
-  machine_id: string | null;
-  start_ts: string;
-  end_ts: string | null;
-  duration_sec: number | null;
-  level1: string | null;
-  level2: string | null;
-  level3: string | null;
-  requires_level_3: boolean;
-  status: string;
+  machine_code: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_min: number | null;
+  lvl1: string | null;
+  lvl2: string | null;
+  lvl3: string | null;
+  classified: boolean | null;
 };
 
-type PendingResp = { ok: boolean; rows: PendingRow[]; count: number; range: any; error?: string };
-type LinesResp = { ok: boolean; rows: { id: string; code: string; name: string }[]; error?: string };
-type TaxResp = {
-  ok: boolean;
-  map: Record<string, Record<string, string[]>>;
-  level1: string[];
-  level2: string[];
-  level3: string[];
-  error?: string;
-};
+type ApiResp = { ok: boolean; rows?: PendingRow[]; error?: string } | any;
 
-/* ===== Helpers ===== */
 const dtf = new Intl.DateTimeFormat("es-ES", {
-  timeZone: "UTC",
   year: "2-digit",
   month: "2-digit",
   day: "2-digit",
   hour: "2-digit",
   minute: "2-digit",
 });
-const dtfFull = new Intl.DateTimeFormat("es-ES", {
-  timeZone: "UTC",
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  second: "2-digit",
-});
 
-function fmtDuration(s?: number | null) {
-  if (!s || s <= 0) return "—";
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}m ${r}s`;
+function hmsFromMin(min: number | null) {
+  if (min == null || isNaN(min)) return "—";
+  const m = Math.max(0, Math.round(min));
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}h ${mm}m`;
 }
 
-function displayOrUnclassified(s?: string | null) {
-  const v = (s ?? "").trim();
-  return v ? v : "Sin clasificar";
+function chipColorByMinutes(min: number | null) {
+  if (min == null) return "bg-slate-700 text-slate-200";
+  if (min < 15) return "bg-emerald-600/20 text-emerald-300 border border-emerald-600/30";
+  if (min < 60) return "bg-amber-600/20 text-amber-300 border border-amber-600/30";
+  return "bg-rose-600/20 text-rose-300 border border-rose-600/30";
 }
 
-/* ===== Página ===== */
 export default function PendingPage() {
-  const supabase = createClientComponentClient();
+  const router = useRouter();
 
-  const [hydrated, setHydrated] = useState(false);
+  // rango
+  const [fromISO, setFromISO] = useState("");
+  const [toISO, setToISO] = useState("");
 
-  // Header: org y usuario
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState<string | null>(null);
+  // filtros
+  const [lineFilter, setLineFilter] = useState<string>("ALL");
+  const [query, setQuery] = useState<string>("");
 
-  // Filtros
-  const [line, setLine] = useState<string>(""); // code
-  const [fromISO, setFromISO] = useState<string>("");
-  const [toISO, setToISO] = useState<string>("");
-
-  // Datos
+  // datos
   const [rows, setRows] = useState<PendingRow[]>([]);
-  const [lines, setLines] = useState<{ id: string; code: string; name: string }[]>([]);
-  const [tax, setTax] = useState<TaxResp["map"]>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Panel de edición
-  const [editing, setEditing] = useState<PendingRow | null>(null);
-  const [n1, setN1] = useState<string>("");
-  const [n2, setN2] = useState<string>("");
-  const [n3, setN3] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState<string | null>(null);
-
-  /* Init filtros + marcar hidratado */
+  // presets rango inicial 24h
   useEffect(() => {
     const to = new Date();
-    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    // Para <input type="datetime-local"> se usa formato "YYYY-MM-DDTHH:mm"
-    const toLocal = new Date(to.getTime() - to.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
-    const fromLocal = new Date(from.getTime() - from.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
-    setToISO(toLocal);
-    setFromISO(fromLocal);
-    setHydrated(true);
+    const from = new Date(Date.now() - 24 * 3600 * 1000);
+    setToISO(to.toISOString());
+    setFromISO(from.toISOString());
   }, []);
 
-  /* Cargar email y organización */
-  useEffect(() => {
-    if (!hydrated) return;
-    (async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        setUserEmail(data.session?.user?.email ?? null);
-      } catch {
-        setUserEmail(null);
-      }
-      try {
-        const meRes = await fetch("/api/me");
-        const me = await meRes.json();
-        if (me?.ok && Array.isArray(me.orgs) && me.orgs.length) {
-          setOrgName(me.orgs[0]?.name ?? null);
-        } else {
-          setOrgName(null);
-        }
-      } catch {
-        setOrgName(null);
-      }
-    })();
-  }, [hydrated, supabase]);
-
-  /* Cargar líneas y taxonomía */
-  useEffect(() => {
-    if (!hydrated) return;
-    let mounted = true;
-
-    (async () => {
-      try {
-        const [lnRes, txRes] = await Promise.all([fetch("/api/lines"), fetch("/api/taxonomy")]);
-        const ln = (await lnRes.json()) as LinesResp | any;
-        const tx = (await txRes.json()) as TaxResp | any;
-        if (!mounted) return;
-        if (ln?.ok) setLines(ln.rows || []);
-        if (tx?.ok) setTax(tx.map || {});
-      } catch {
-        if (!mounted) return;
-        setLines([]);
-        setTax({});
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [hydrated]);
-
-  /* QS filtros */
-  const qs = useMemo(() => {
-    if (!fromISO || !toISO) return "";
-    const q = new URLSearchParams();
-    // Normalizamos a ISO real (UTC) para la API
-    q.set("from", new Date(fromISO).toISOString());
-    q.set("to", new Date(toISO).toISOString());
-    if (line) q.set("line", line.toUpperCase());
-    return q.toString();
-  }, [fromISO, toISO, line]);
-
-  /* Cargar pendientes */
-  useEffect(() => {
-    if (!hydrated || !qs) return;
-    let mounted = true;
-    (async () => {
-      try {
-        setLoading(true);
-        setErr(null);
-        const res = await fetch(`/api/pending-paros?${qs}`);
-        const json = (await res.json()) as PendingResp | any;
-        if (!mounted) return;
-        if (!json?.ok) {
-          setErr(json?.error || "Error cargando pendientes");
-          setRows([]);
-        } else {
-          setRows(json.rows || []);
-        }
-      } catch (e: any) {
-        if (!mounted) return;
-        setErr(e?.message ?? "Error inesperado");
-        setRows([]);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [qs, hydrated]);
-
-  /* opciones dependientes */
-  const level1Opts = useMemo(
-    () => Object.keys(tax).sort((a, b) => a.localeCompare(b, "es")),
-    [tax]
-  );
-  const level2Opts = useMemo(() => {
-    if (!n1 || !tax[n1]) return [];
-    return Object.keys(tax[n1]).sort((a, b) => a.localeCompare(b, "es"));
-  }, [n1, tax]);
-  const level3Opts = useMemo(() => {
-    if (!n1 || !n2 || !tax[n1] || !tax[n1][n2]) return [];
-    return [...tax[n1][n2]].sort((a, b) => a.localeCompare(b, "es"));
-  }, [n1, n2, tax]);
-
-  /* abrir panel */
-  const openEdit = (r: PendingRow) => {
-    setEditing(r);
-    setN1((r.level1 ?? "").trim());
-    setN2((r.level2 ?? "").trim());
-    setN3((r.level3 ?? "").trim());
-    setSaveErr(null);
-  };
-
-  /* guardar */
-  const doSave = async () => {
-    if (!editing) return;
+  async function load() {
+    if (!fromISO || !toISO) return;
+    setLoading(true);
+    setErr(null);
     try {
-      setSaving(true);
-      setSaveErr(null);
-      const res = await fetch(`/api/events/${editing.id}/classify`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ level1: n1 || null, level2: n2 || null, level3: n3 || null }),
-      });
-      const json = await res.json();
-      if (!json?.ok) {
-        setSaveErr(json?.error || "No se pudo guardar");
-        return;
-      }
-      // sacar de la lista
-      setRows((prev) => prev.filter((x) => x.id !== editing.id));
-      setEditing(null);
+      const qs = new URLSearchParams({
+        from: fromISO,
+        to: toISO,
+        limit: "400",
+        ...(lineFilter !== "ALL" ? { line: lineFilter } : {}),
+      }).toString();
+
+      const res = await fetch(`/api/pending?${qs}`);
+      const json: ApiResp = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Error cargando pendientes");
+      setRows(json.rows ?? []);
     } catch (e: any) {
-      setSaveErr(e?.message ?? "Error inesperado");
+      setErr(e?.message ?? "Error inesperado");
+      setRows([]);
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  };
+  }
 
-  /* ===== Render ===== */
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromISO, toISO, lineFilter]);
+
+  const uniqueLines = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => r.line_code && set.add(r.line_code));
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return rows;
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      return (
+        (r.machine_code || "").toLowerCase().includes(q) ||
+        (r.line_code || "").toLowerCase().includes(q) ||
+        (r.lvl1 || "").toLowerCase().includes(q) ||
+        (r.lvl2 || "").toLowerCase().includes(q) ||
+        (r.lvl3 || "").toLowerCase().includes(q)
+      );
+    });
+  }, [rows, query]);
+
+  function setPresetHours(h: number) {
+    const to = new Date();
+    const from = new Date(Date.now() - h * 3600 * 1000);
+    setToISO(to.toISOString());
+    setFromISO(from.toISOString());
+  }
+
+  function exportCSV() {
+    const headers = [
+      "id",
+      "line_code",
+      "machine_code",
+      "started_at",
+      "ended_at",
+      "duration_min",
+      "lvl1",
+      "lvl2",
+      "lvl3",
+      "classified",
+    ];
+    const body = filtered.map((r) =>
+      [
+        r.id,
+        r.line_code ?? "",
+        r.machine_code ?? "",
+        r.started_at ?? "",
+        r.ended_at ?? "",
+        r.duration_min ?? "",
+        r.lvl1 ?? "",
+        r.lvl2 ?? "",
+        r.lvl3 ?? "",
+        r.classified ?? "",
+      ]
+        .map((x) =>
+          typeof x === "string" && x.includes(",") ? `"${x.replace(/"/g, '""')}"` : String(x)
+        )
+        .join(",")
+    );
+    const csv = [headers.join(","), ...body].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pending_${new Date().toISOString().slice(0, 19)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <main className="min-h-screen w-full bg-slate-950 text-slate-100">
-      {/* ===== Header unificado (con botón volver en /pending) ===== */}
-      <AppHeader
-        orgName={orgName ?? null}
-        userEmail={userEmail ?? null}
-        fromISO={fromISO}
-        toISO={toISO}
-      />
-
-      {/* ===== Contenido ===== */}
-      <section className="max-w-6xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-semibold mb-4">Paros pendientes</h1>
-
-        {/* Filtros */}
-        <div className="mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div>
-            <label className="text-sm text-slate-400 block mb-1">Desde</label>
-            <input
-              type="datetime-local"
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2"
-              value={fromISO}
-              onChange={(e) => setFromISO(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-slate-400 block mb-1">Hasta</label>
-            <input
-              type="datetime-local"
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2"
-              value={toISO}
-              onChange={(e) => setToISO(e.target.value)}
-            />
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-sm text-slate-400 block mb-1">Línea</label>
-            <select
-              className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2"
-              value={line}
-              onChange={(e) => setLine(e.target.value)}
+    <main className="min-h-screen bg-slate-950">
+      {/* Header */}
+      <header
+        className="
+          sticky top-0 z-20
+          bg-slate-950 border-b border-slate-800
+          px-4 sm:px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3
+        "
+      >
+        <div className="max-w-6xl mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="rounded-xl bg-slate-800 px-3 py-1.5 text-slate-200 hover:bg-slate-700 border border-slate-700"
+              title="Volver al Dashboard"
             >
-              <option value="">Todas</option>
-              {lines.map((ln) => (
-                <option key={ln.id} value={ln.code}>
-                  {ln.code} — {ln.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-end">
-            {/* No hace falta onClick: cambiar filtros recalcula qs y dispara la carga */}
-            <button className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2">
-              Aplicar
+              ← Volver
             </button>
+            <div className="text-2xl font-semibold">Paros pendientes</div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setPresetHours(24)}
+              className={`px-3 py-1.5 rounded-lg border ${
+                Math.abs(new Date(toISO).getTime() - new Date(fromISO).getTime() - 24 * 3600 * 1000) < 1000
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "border-slate-700 text-slate-300 hover:bg-slate-800/60"
+              }`}
+            >
+              24h
+            </button>
+            <button
+              onClick={() => setPresetHours(48)}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/60"
+            >
+              48h
+            </button>
+            <button
+              onClick={() => setPresetHours(24 * 7)}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/60"
+            >
+              7d
+            </button>
+
+            <button
+              onClick={load}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-900 font-medium hover:bg-emerald-400"
+              title="Recargar"
+            >
+              Recargar
+            </button>
+
+            <button
+              onClick={exportCSV}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/60"
+              title="Exportar CSV"
+            >
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Filtros, lista */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-6 text-slate-100">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={lineFilter}
+              onChange={(e) => setLineFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="ALL">Todas las líneas</option>
+              {Array.from(new Set(rows.map(r => r.line_code).filter(Boolean) as string[]))
+                .sort()
+                .map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+            </select>
+
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar: línea, máquina o motivo…"
+              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm w-full sm:w-72 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="text-sm text-slate-400">
+            {loading ? "Cargando…" : `${filtered.length} items`}
           </div>
         </div>
 
         {err && (
-          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200">
+          <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-200">
             {err}
           </div>
         )}
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-900/60">
-              <tr className="text-slate-400">
-                <th className="text-left py-3 px-4">Inicio</th>
-                <th className="text-left py-3 px-4">Línea</th>
-                <th className="text-left py-3 px-4">Nivel 1</th>
-                <th className="text-left py-3 px-4">Nivel 2</th>
-                <th className="text-left py-3 px-4">Nivel 3</th>
-                <th className="text-right py-3 px-4">Duración</th>
-                <th className="text-left py-3 px-4">Estado</th>
-                <th className="py-3 px-4"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {!rows.length && (
+        <div className="mt-4">
+          {/* Desktop table */}
+          <div className="hidden md:block rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-900/70 text-slate-400">
                 <tr>
-                  <td className="py-4 px-4 text-slate-400" colSpan={8}>
-                    {loading ? "Cargando…" : "No hay pendientes en el rango seleccionado"}
-                  </td>
+                  <th className="text-left px-4 py-3">Línea</th>
+                  <th className="text-left px-2 py-3">Máquina</th>
+                  <th className="text-left px-2 py-3">Inicio</th>
+                  <th className="text-left px-2 py-3">Fin</th>
+                  <th className="text-left px-2 py-3">Duración</th>
+                  <th className="text-left px-2 py-3">Motivo</th>
+                  <th className="text-right px-4 py-3">Acción</th>
                 </tr>
-              )}
-              {rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-slate-800/70 hover:bg-slate-900/60 transition-colors"
-                >
-                  <td className="py-3 px-4">{dtfFull.format(new Date(r.start_ts))}</td>
-                  <td className="py-3 px-4">{r.line_code ?? "—"}</td>
-                  <td className="py-3 px-4">{displayOrUnclassified(r.level1)}</td>
-                  <td className="py-3 px-4">{displayOrUnclassified(r.level2)}</td>
-                  <td className="py-3 px-4">
-                    {r.level3?.trim()
-                      ? r.level3
-                      : r.requires_level_3
-                      ? "⚠ requiere N3"
-                      : "—"}
-                  </td>
-                  <td className="py-3 px-4 text-right">{fmtDuration(r.duration_sec)}</td>
-                  <td className="py-3 px-4">
-                    <span className="inline-flex items-center rounded-lg px-2 py-1 text-xs bg-amber-400/20 text-amber-300 border border-amber-400/20">
-                      pending
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <button
-                      onClick={() => openEdit(r)}
-                      className="rounded-lg border border-slate-700 px-3 py-1 hover:bg-slate-800 transition"
-                    >
-                      Clasificar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ===== PANEL LATERAL ===== */}
-      {editing && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setEditing(null)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-md bg-slate-950 border-l border-slate-800 shadow-2xl p-6 overflow-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold">Clasificar evento</h3>
-              <button
-                className="text-slate-400 hover:text-slate-200"
-                onClick={() => setEditing(null)}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-4 text-sm text-slate-400">
-              <div>
-                Inicio:{" "}
-                <span className="text-slate-200">
-                  {dtfFull.format(new Date(editing.start_ts))}
-                </span>
-              </div>
-              <div>
-                Línea: <span className="text-slate-200">{editing.line_code ?? "—"}</span>
-              </div>
-              <div>
-                Duración:{" "}
-                <span className="text-slate-200">{fmtDuration(editing.duration_sec)}</span>
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-4">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Nivel 1</label>
-                <select
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2"
-                  value={n1}
-                  onChange={(e) => {
-                    setN1(e.target.value);
-                    setN2("");
-                    setN3("");
-                  }}
-                >
-                  <option value="">— Seleccionar —</option>
-                  {level1Opts.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Nivel 2</label>
-                <select
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2"
-                  value={n2}
-                  onChange={(e) => {
-                    setN2(e.target.value);
-                    setN3("");
-                  }}
-                  disabled={!n1}
-                >
-                  <option value="">{n1 ? "— Seleccionar —" : "Elige Nivel 1 primero"}</option>
-                  {level2Opts.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Nivel 3 (opcional)</label>
-                <select
-                  className="w-full rounded-xl bg-slate-900 border border-slate-800 px-3 py-2"
-                  value={n3}
-                  onChange={(e) => setN3(e.target.value)}
-                  disabled={!n1 || !n2 || !level3Opts.length}
-                >
-                  <option value="">
-                    {!n1 || !n2 ? "Elige N1/N2 primero" : "— (ninguno) —"}
-                  </option>
-                  {level3Opts.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-                {editing.requires_level_3 && (
-                  <div className="mt-1 text-xs text-amber-300">
-                    Este evento sugiere completar Nivel 3.
-                  </div>
+              </thead>
+              <tbody>
+                {!loading && filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-6 text-slate-400">
+                      Sin pendientes para el rango/criterio actual.
+                    </td>
+                  </tr>
                 )}
-              </div>
 
-              {saveErr && (
-                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
-                  {saveErr}
+                {loading &&
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={`sk-${i}`} className="border-t border-slate-800/60">
+                      <td className="px-4 py-4"><div className="h-4 w-16 bg-slate-800 rounded" /></td>
+                      <td className="px-2 py-4"><div className="h-4 w-24 bg-slate-800 rounded" /></td>
+                      <td className="px-2 py-4"><div className="h-4 w-28 bg-slate-800 rounded" /></td>
+                      <td className="px-2 py-4"><div className="h-4 w-28 bg-slate-800 rounded" /></td>
+                      <td className="px-2 py-4"><div className="h-4 w-16 bg-slate-800 rounded" /></td>
+                      <td className="px-2 py-4"><div className="h-4 w-40 bg-slate-800 rounded" /></td>
+                      <td className="px-4 py-4 text-right"><div className="h-8 w-24 bg-slate-800 rounded-lg" /></td>
+                    </tr>
+                  ))}
+
+                {!loading &&
+                  filtered.map((r) => (
+                    <tr key={r.id} className="border-t border-slate-800/60 hover:bg-slate-900/60 transition">
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="px-2 py-0.5 text-xs rounded-lg bg-slate-800 text-slate-200">
+                            {r.line_code ?? "—"}
+                          </span>
+                          <span className="text-slate-400">#{r.id.slice(0, 6)}</span>
+                        </span>
+                      </td>
+                      <td className="px-2 py-3">{r.machine_code ?? "—"}</td>
+                      <td className="px-2 py-3">{r.started_at ? dtf.format(new Date(r.started_at)) : "—"}</td>
+                      <td className="px-2 py-3">{r.ended_at ? dtf.format(new Date(r.ended_at)) : "—"}</td>
+                      <td className="px-2 py-3">
+                        <span className={"px-2 py-0.5 rounded-md text-xs " + chipColorByMinutes(r.duration_min)}>
+                          {hmsFromMin(r.duration_min)}
+                        </span>
+                      </td>
+                      <td className="px-2 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {r.lvl1 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/80 border border-slate-700">{r.lvl1}</span>}
+                          {r.lvl2 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/60 border border-slate-700">{r.lvl2}</span>}
+                          {r.lvl3 ? (
+                            <span className="px-2 py-0.5 text-xs rounded-md bg-emerald-600/20 border border-emerald-600/30 text-emerald-300">{r.lvl3}</span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-xs rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300">falta L3</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => router.push(`/pending/${r.id}`)}
+                          className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2 transition"
+                        >
+                          Clasificar →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden grid grid-cols-1 gap-3">
+            {loading &&
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={`skm-${i}`} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                  <div className="h-4 w-28 bg-slate-800 rounded mb-3" />
+                  <div className="h-4 w-full bg-slate-800 rounded mb-2" />
+                  <div className="h-4 w-2/3 bg-slate-800 rounded" />
                 </div>
-              )}
+              ))}
 
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => setEditing(null)}
-                  className="rounded-xl border border-slate-700 px-4 py-2"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={doSave}
-                  disabled={saving || (!n1 && !n2 && !n3)}
-                  className="rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-900 font-medium px-4 py-2"
-                >
-                  {saving ? "Guardando…" : "Guardar clasificación"}
-                </button>
+            {!loading && filtered.length === 0 && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-slate-400">
+                Sin pendientes para el rango/criterio actual.
               </div>
-            </div>
+            )}
+
+            {!loading &&
+              filtered.map((r) => (
+                <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 text-xs rounded-lg bg-slate-800">{r.line_code ?? "—"}</span>
+                      <span className="text-slate-400">{r.machine_code ?? "—"}</span>
+                    </div>
+                    <span className={"px-2 py-0.5 rounded-md text-xs " + chipColorByMinutes(r.duration_min)}>
+                      {hmsFromMin(r.duration_min)}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-300">
+                    <div><span className="text-slate-400">Inicio: </span>{r.started_at ? dtf.format(new Date(r.started_at)) : "—"}</div>
+                    <div><span className="text-slate-400">Fin:&nbsp;&nbsp;&nbsp;&nbsp;</span>{r.ended_at ? dtf.format(new Date(r.ended_at)) : "—"}</div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {r.lvl1 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/80 border border-slate-700">{r.lvl1}</span>}
+                      {r.lvl2 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/60 border border-slate-700">{r.lvl2}</span>}
+                      {r.lvl3 ? (
+                        <span className="px-2 py-0.5 text-xs rounded-md bg-emerald-600/20 border border-emerald-600/30 text-emerald-300">{r.lvl3}</span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-xs rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300">falta L3</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-3 text-right">
+                    <button
+                      onClick={() => router.push(`/pending/${r.id}`)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2 transition"
+                    >
+                      Clasificar →
+                    </button>
+                  </div>
+                </div>
+              ))}
           </div>
         </div>
-      )}
+      </section>
     </main>
   );
 }
