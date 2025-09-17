@@ -6,6 +6,13 @@ type SeriesRow = { bucket_ts: string; line_code: string | null; oee: number | nu
 
 const clamp01 = (n: number) => (isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
 
+// pequeño helper para trocear arrays en lotes seguros para `.in()`
+function chunk<T>(arr: T[], size = 900) {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export async function GET(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -18,27 +25,37 @@ export async function GET(req: NextRequest) {
   const admin = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: { "X-Client-Info": "liwa-kpis-series" } },
+    db: { schema: "liwa" },
   });
 
   const { searchParams } = new URL(req.url);
   const toISO = searchParams.get("to") ?? new Date().toISOString();
-  const fromParam = searchParams.get("from"); // si viene lo respetamos pero con fallback si no hay datos
-  const lineCodeFilter = searchParams.get("line");
+  const fromParam = searchParams.get("from"); // si viene, se respeta
+  const lineNameFilter = searchParams.get("line"); // filtraremos por lines.name si viene
 
-  // --- producción (sin joins), filtrando por window_start y con fallbacks 24h→7d→30d
-  const prodSel =
-    "id, line_id, machine_id, window_start, planned_runtime_sec, unplanned_downtime_sec, produced_units, scrap_units, ideal_cycle_ms";
+  // --- producción (columnas reales)
+  const prodSel = [
+    "id",
+    "line_id",
+    "machine_id",
+    "ts_start",
+    "ts_end",
+    "planned_time_s",
+    "run_time_s",
+    "good_units",
+    "scrap_units",
+    "ideal_cycle_s",
+  ].join(", ");
 
   async function fetchProd(fromISO: string | null) {
-    let q = admin.from("production").select(prodSel).lte("window_start", toISO).order("window_start", {
-      ascending: true,
-    });
-    if (fromISO) q = q.gte("window_start", fromISO);
+    let q = admin.from("production").select(prodSel).lte("ts_start", toISO).order("ts_start", { ascending: true });
+    if (fromISO) q = q.gte("ts_start", fromISO);
     const { data, error } = await q;
     if (error) throw new Error(`Error leyendo production: ${error.message}`);
     return data ?? [];
   }
 
+  // fallback de rangos si no hay datos
   const ranges: (string | null)[] = [];
   if (fromParam) ranges.push(fromParam);
   ranges.push(
@@ -53,59 +70,59 @@ export async function GET(req: NextRequest) {
     if (prod.length > 0) break;
   }
 
-  // --- catálogos para mapear code de línea
-  const lineIds = new Set<string>();
-  const machineIds = new Set<string>();
-  for (const r of prod) {
-    if (r.line_id) lineIds.add(r.line_id as string);
-    if (r.machine_id) machineIds.add(r.machine_id as string);
-  }
+  if (!prod.length) return NextResponse.json({ ok: true, rows: [] });
 
-  const machineMap = new Map<string, { line_id: string | null }>();
-  if (machineIds.size) {
-    const { data: mach, error } = await admin.from("machines").select("id, line_id").in("id", Array.from(machineIds));
+  // --- mapear lines.id -> lines.name
+  const lineIds = Array.from(new Set(prod.map((r) => r.line_id).filter(Boolean)));
+  const lineMap = new Map<string, { name: string | null }>();
+  if (lineIds.length) {
+    const { data: lines, error } = await admin.from("lines").select("id, name").in("id", lineIds);
     if (error) return NextResponse.json({ ok: false, rows: [], error: error.message }, { status: 500 });
-    for (const m of mach ?? []) {
-      machineMap.set(m.id as string, { line_id: (m as any).line_id ?? null });
-      if ((m as any).line_id) lineIds.add((m as any).line_id);
+    for (const l of lines ?? []) lineMap.set(l.id as string, { name: (l as any).name ?? null });
+  }
+  const matchLineName = (row: any): string | null => {
+    const lid: string | null = row.line_id ?? null;
+    if (!lid) return null;
+    return lineMap.get(lid)?.name ?? null;
+  };
+
+  // --- traer solapes de paros por production.id (vista v_unplanned_by_slot)
+  const prodIds = prod.map((r) => r.id as string);
+  const unplannedMap = new Map<string, number>(); // production_id -> unplanned_overlap_s
+  for (const batch of chunk(prodIds, 900)) {
+    const { data, error } = await admin
+      .from("v_unplanned_by_slot")
+      .select("production_id, unplanned_overlap_s")
+      .in("production_id", batch);
+    if (error) return NextResponse.json({ ok: false, rows: [], error: error.message }, { status: 500 });
+    for (const row of data ?? []) {
+      unplannedMap.set(row.production_id as string, Number(row.unplanned_overlap_s ?? 0));
     }
   }
 
-  const lineMap = new Map<string, { code: string | null }>();
-  if (lineIds.size) {
-    const { data: lines, error } = await admin.from("lines").select("id, code").in("id", Array.from(lineIds));
-    if (error) return NextResponse.json({ ok: false, rows: [], error: error.message }, { status: 500 });
-    for (const l of lines ?? []) lineMap.set(l.id as string, { code: (l as any).code ?? null });
-  }
-
-  const matchLineCode = (row: any): string | null => {
-    let lid: string | null = row.line_id ?? null;
-    if (!lid && row.machine_id) lid = machineMap.get(row.machine_id)?.line_id ?? null;
-    if (!lid) return null;
-    return lineMap.get(lid)?.code ?? null;
-  };
-
-  // --- series OEE
-  const series: SeriesRow[] = [];
+  // --- construir series OEE por cada fila (bucket = ts_start)
+  const rows: SeriesRow[] = [];
   for (const r of prod) {
-    const planned = Number(r.planned_runtime_sec ?? 0);
-    const unplanned = Number(r.unplanned_downtime_sec ?? 0);
-    const produced = Number(r.produced_units ?? 0);
+    const planned = Number(r.planned_time_s ?? 0);
+    const good = Number(r.good_units ?? 0);
     const scrap = Number(r.scrap_units ?? 0);
-    const ideal_ms = Number(r.ideal_cycle_ms ?? 0);
+    const ideal_cycle_s = Number(r.ideal_cycle_s ?? 0);
+    const ideal_ms = ideal_cycle_s > 0 ? ideal_cycle_s * 1000 : 0;
+
+    const unplanned = Number(unplannedMap.get(r.id) ?? 0);
     const op = Math.max(planned - unplanned, 0);
 
     const availability = planned > 0 ? clamp01(op / planned) : 0;
-    const perf = op > 0 ? clamp01(((produced * ideal_ms) / 1000) / op) : 0;
-    const quality = produced > 0 ? clamp01((produced - scrap) / produced) : 0;
-    const oee = clamp01(availability * perf * quality);
+    const performance = op > 0 ? clamp01(((good * ideal_ms) / 1000) / op) : 0;
+    const quality = good > 0 ? clamp01((good - scrap) / good) : 0;
+    const oee = clamp01(availability * performance * quality);
 
-    const line_code = matchLineCode(r);
-    if (lineCodeFilter && line_code !== lineCodeFilter) continue;
+    const line_name = matchLineName(r);
+    if (lineNameFilter && line_name !== lineNameFilter) continue;
 
-    const ts = (r as any)?.window_start ?? null;
-    if (ts) series.push({ bucket_ts: ts, line_code, oee });
+    const ts = (r as any)?.ts_start ?? null;
+    if (ts) rows.push({ bucket_ts: ts, line_code: line_name, oee });
   }
 
-  return NextResponse.json({ ok: true, rows: series });
+  return NextResponse.json({ ok: true, rows });
 }

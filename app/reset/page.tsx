@@ -19,11 +19,13 @@ export default function ResetPage() {
       setStatus("sending");
       setMsg(null);
 
-      const origin =
-        typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+      // URL base robusta para local, Vercel y móvil
+      const baseUrl =
+        (typeof process !== "undefined" && process.env.NEXT_PUBLIC_SITE_URL) ||
+        (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${origin}/auth/callback?type=recovery`,
+        redirectTo: `${baseUrl}/auth/callback?type=recovery`,
       });
 
       if (error) {
@@ -89,3 +91,4 @@ export default function ResetPage() {
     </main>
   );
 }
+

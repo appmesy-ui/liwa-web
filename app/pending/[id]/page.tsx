@@ -1,425 +1,464 @@
 // app/pending/[id]/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
-type Row = {
+// Tipos de la API
+type TaxTree = { id: string; name: string; requires_detail: boolean | null; children: TaxTree[] };
+type EventRow = {
   id: string;
-  line_code: string | null;
-  machine_code: string | null;
+  line_id: string | null;
+  machine_id: string | null;
+  taxonomy_node_id: string | null;
   started_at: string | null;
   ended_at: string | null;
-  duration_min: number | null;
-  lvl1: string | null;
-  lvl2: string | null;
-  lvl3: string | null;
-  classified: boolean | null;
+  duration_s: number | null;
+  notes: string | null;
+  classified_at: string | null;
+  line_name?: string | null;
+  machine_name?: string | null;
 };
 
-type TaxRow = {
-  lvl1: string;
-  lvl2: string;
-  lvl3_default: string | null;
-  requires_lvl3: boolean | null;
-};
+const norm = (s: string | null | undefined) =>
+  (s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
-const dtf = new Intl.DateTimeFormat("es-ES", {
-  year: "2-digit",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-function hmsFromMin(min: number | null) {
-  if (min == null || isNaN(min)) return "—";
-  const m = Math.max(0, Math.round(min));
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${h}h ${mm}m`;
+function fmt(ts: string | null) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleString();
 }
 
-export default function ClassifyPendingPage() {
+export default function Page({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const { id } = useParams<{ id: string }>();
-  const supabase = createClientComponentClient();
+  const [isSaving, startSaving] = useTransition();
 
-  const [row, setRow] = useState<Row | null>(null);
-  const [loading, setLoading] = useState(true);       // evento
-  const [taxLoading, setTaxLoading] = useState(true); // taxonomía
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [taxErr, setTaxErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [tax, setTax] = useState<TaxRow[]>([]); // catálogo
+  const [event, setEvent] = useState<EventRow | null>(null);
+  const [tree, setTree] = useState<TaxTree[]>([]);
+  const [notes, setNotes] = useState("");
 
-  // Form
-  const [lvl1, setLvl1] = useState<string>("");
-  const [lvl2, setLvl2] = useState<string>("");
-  const [lvl3, setLvl3] = useState<string>("");
+  // Selecciones SIEMPRE empiezan vacías:
+  const [selL1, setSelL1] = useState<string>("");
+  const [selL2, setSelL2] = useState<string>("");
+  const [selL3, setSelL3] = useState<string>("");
 
-  // ===== Helpers =====
-  function normalizeCatalog(rows: any[]): TaxRow[] {
-    return (rows ?? [])
-      .map((r: any) => {
-        const L1 =
-          r.lvl1 ?? r.nivel1 ?? r.nivel_1 ?? r.Nivel_1 ?? r.level1 ?? r.Level_1 ?? null;
-        const L2 =
-          r.lvl2 ?? r.nivel2 ?? r.nivel_2 ?? r.Nivel_2 ?? r.level2 ?? r.Level_2 ?? null;
-        const L3D =
-          r.lvl3_default ??
-          r.nivel3_default ??
-          r.default_lvl3 ??
-          r.default_level3 ??
-          r.Nivel_3_Default ??
-          null;
-        const REQ =
-          r.requires_lvl3 ??
-          r.requiere_lvl3 ??
-          r.requiere_nivel3 ??
-          r.Requiere_Nivel_3 ??
-          null;
-
-        return {
-          lvl1: L1 ?? "",
-          lvl2: L2 ?? "",
-          lvl3_default: L3D ?? null,
-          requires_lvl3:
-            REQ === true || REQ === "true" || REQ === 1
-              ? true
-              : REQ === false || REQ === "false" || REQ === 0
-              ? false
-              : null,
-        } as TaxRow;
-      })
-      .filter((t) => t.lvl1 && t.lvl2);
-  }
-
-  function minutesDiffISO(a?: string | null, b?: string | null): number | null {
-    if (!a || !b) return null;
-    const da = new Date(a);
-    const db = new Date(b);
-    if (isNaN(da.getTime()) || isNaN(db.getTime())) return null;
-    return Math.max(0, Math.round((db.getTime() - da.getTime()) / 60000));
-  }
-
-  // ===== Cargas =====
+  // --- Cargar datos (sin preseleccionar taxonomy_node_id) ---
   useEffect(() => {
     let alive = true;
-
-    // Evento (usar la MISMA tabla que alimenta /pending → events)
     (async () => {
       try {
         setLoading(true);
-        setErr(null);
-
-        const { data: ev, error: evErr } = await supabase
-          .from("events")
-          .select("*")
-          .eq("id", id)
-          .maybeSingle();
-
-        if (evErr) throw evErr;
-        if (!ev) throw new Error("No se encontró el evento");
-
+        setError(null);
+        const res = await fetch(`/api/${params.id}/classify`, { cache: "no-store" });
+        const j = await res.json();
+        if (!res.ok || j?.ok === false) throw new Error(j?.error ?? `HTTP ${res.status}`);
         if (!alive) return;
 
-        const normalized: Row = {
-          id: ev.id,
-          line_code: ev.line_code ?? ev.line ?? ev.linea ?? null,
-          machine_code: ev.machine_code ?? ev.machine ?? ev.maquina ?? null,
-          started_at: ev.started_at ?? ev.start_time ?? null,
-          ended_at: ev.ended_at ?? ev.end_time ?? null,
-          duration_min:
-            ev.duration_min ??
-            minutesDiffISO(ev.started_at ?? ev.start_time, ev.ended_at ?? ev.end_time),
-          lvl1: ev.lvl1 ?? ev.level1 ?? ev.Nivel_1 ?? null,
-          lvl2: ev.lvl2 ?? ev.level2 ?? ev.Nivel_2 ?? null,
-          lvl3: ev.lvl3 ?? ev.level3 ?? ev.Nivel_3 ?? null,
-          classified:
-            ev.classified ??
-            ev.is_classified ??
-            (ev.lvl1 || ev.lvl2 || ev.lvl3 ? true : null),
-        };
+        setEvent(j.event as EventRow);
+        setTree((j.taxonomy_tree ?? []) as TaxTree[]);
+        setNotes((j.event?.notes ?? "") as string);
 
-        setRow(normalized);
-        setLvl1(normalized.lvl1 ?? "");
-        setLvl2(normalized.lvl2 ?? "");
-        setLvl3(normalized.lvl3 ?? "");
+        // Limpieza explícita por si venimos de otra pantalla con estado en memoria
+        setSelL1("");
+        setSelL2("");
+        setSelL3("");
       } catch (e: any) {
         if (!alive) return;
-        setErr(e?.message ?? "Error cargando el evento");
+        setError(e?.message ?? String(e));
       } finally {
         if (alive) setLoading(false);
       }
     })();
-
-    // Taxonomía
-    (async () => {
-      try {
-        setTaxLoading(true);
-        setTaxErr(null);
-
-        // 1º intento: downtime_taxonomy (leer * y normalizar)
-        let list: TaxRow[] = [];
-        try {
-          const { data: t1 } = await supabase.from("downtime_taxonomy").select("*");
-          list = normalizeCatalog(t1 || []);
-        } catch {
-          // seguimos al fallback
-        }
-
-        // Fallback: catalog_motivo
-        if (list.length === 0) {
-          const { data: t2 } = await supabase.from("catalog_motivo").select("*");
-          list = normalizeCatalog(t2 || []);
-        }
-
-        if (!alive) return;
-        setTax(list);
-      } catch (e: any) {
-        if (!alive) return;
-        setTaxErr(e?.message ?? "Error cargando taxonomía");
-        setTax([]); // no bloqueamos UI
-      } finally {
-        if (alive) setTaxLoading(false);
-      }
-    })();
-
     return () => {
       alive = false;
     };
-  }, [id, supabase]);
+  }, [params.id]);
 
-  // ===== Opciones dependientes =====
-  const lvl1Options = useMemo(() => {
-    const s = new Set(tax.map((t) => t.lvl1).filter(Boolean));
-    return Array.from(s).sort();
-  }, [tax]);
+  // --- Cascada con dedupe en L1 ---
+  const l1Raw = useMemo(() => tree.filter((n) => (n.children?.length ?? 0) > 0), [tree]);
 
-  const lvl2Options = useMemo(() => {
-    if (!lvl1) return [];
-    const s = new Set(tax.filter((t) => t.lvl1 === lvl1).map((t) => t.lvl2).filter(Boolean));
-    return Array.from(s).sort();
-  }, [tax, lvl1]);
+  // id->nodo
+  const idMap = useMemo(() => {
+    const m = new Map<string, TaxTree>();
+    const walk = (n: TaxTree) => {
+      m.set(n.id, n);
+      for (const c of n.children) walk(c);
+    };
+    for (const r of tree) walk(r);
+    return m;
+  }, [tree]);
 
-  const selectedRule = useMemo(() => {
-    if (!lvl1 || !lvl2) return null;
-    return tax.find((t) => t.lvl1 === lvl1 && t.lvl2 === lvl2) ?? null;
-  }, [tax, lvl1, lvl2]);
+  // L1 único por nombre
+  const l1Options = useMemo(() => {
+    const seen = new Set<string>();
+    const out: TaxTree[] = [];
+    for (const n of l1Raw) {
+      const k = norm(n.name);
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(n);
+      }
+    }
+    return out.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [l1Raw]);
 
-  const mustLvl3 = Boolean(selectedRule?.requires_lvl3);
+  // Resolver duplicado seleccionado
+  const l1SelectedNode = useMemo(() => {
+    const direct = l1Options.find((n) => n.id === selL1);
+    if (direct) return direct;
+    const original = idMap.get(selL1);
+    if (!original) return null;
+    const byName = l1Options.find((n) => norm(n.name) === norm(original.name));
+    return byName ?? null;
+  }, [l1Options, selL1, idMap]);
 
-  // Reset dependencias
+  const l2Options = useMemo(() => l1SelectedNode?.children ?? [], [l1SelectedNode]);
+  const l2SelectedNode = useMemo(() => l2Options.find((n) => n.id === selL2) ?? null, [l2Options, selL2]);
+  const l3Options = useMemo(() => l2SelectedNode?.children ?? [], [l2SelectedNode]);
+
+  // Limpiar inferiores al cambiar selección
   useEffect(() => {
-    setLvl2("");
-    setLvl3("");
-  }, [lvl1]);
-
+    setSelL2("");
+    setSelL3("");
+  }, [selL1]);
   useEffect(() => {
-    if (!lvl2) {
-      setLvl3("");
+    setSelL3("");
+  }, [selL2]);
+
+  const selectedLeafId = selL3 || selL2 || selL1 || "";
+  const selectedLeafRequiresDetail =
+    (l3Options.find((n) => n.id === selL3)?.requires_detail ??
+      l2Options.find((n) => n.id === selL2)?.requires_detail ??
+      l1Options.find((n) => n.id === selL1)?.requires_detail) ?? false;
+
+  // --- Guardar ---
+  async function save() {
+    if (!event) return;
+    if (!selectedLeafId) {
+      alert("Selecciona un motivo (L1/L2/L3).");
       return;
     }
-    if (selectedRule?.lvl3_default && !lvl3) {
-      setLvl3(selectedRule.lvl3_default);
+    if (selectedLeafRequiresDetail && !notes.trim()) {
+      const ok = confirm("Este motivo requiere detalle. ¿Guardar sin notas?");
+      if (!ok) return;
     }
-  }, [lvl2, selectedRule, lvl3]);
 
-  // Validación
-  const canSave = useMemo(() => {
-    if (!lvl1 && !lvl2 && !lvl3) return false;
-    if (mustLvl3 && !lvl3.trim()) return false;
-    return true;
-  }, [lvl1, lvl2, lvl3, mustLvl3]);
-
-  // Guardar (API existente)
-  async function handleSave() {
-    try {
-      setSaving(true);
-      setErr(null);
-
-      const res = await fetch(`/api/events/${id}/classify`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          level1: lvl1 || null,
-          level2: lvl2 || null,
-          level3: lvl3 || null,
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-
-      router.push("/pending");
-    } catch (e: any) {
-      setErr(e?.message ?? "Error guardando la clasificación");
-    } finally {
-      setSaving(false);
-    }
+    startSaving(async () => {
+      try {
+        const res = await fetch(`/api/${event.id}/classify`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taxonomy_node_id: selectedLeafId, notes }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || j?.ok === false) throw new Error(j?.error ?? `HTTP ${res.status}`);
+        router.push("/pending");
+        router.refresh();
+      } catch (e: any) {
+        alert(e?.message ?? String(e));
+      }
+    });
   }
 
+  // --- Modal UX: cerrar por Esc / click en backdrop ---
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") router.push("/pending");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
+
+  const onBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) router.push("/pending");
+  };
+
+  const clearAll = () => {
+    setSelL1("");
+    setSelL2("");
+    setSelL3("");
+  };
+
+  // --- UI ---
   return (
-    <main className="min-h-screen w-full bg-slate-950 text-slate-100">
-      {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-slate-800 px-4 sm:px-6 py-3 bg-slate-950 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <div
+        onClick={onBackdropClick}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-100 transition-opacity"
+      />
+
+      {/* Bottom sheet (mobile) / Centered modal (md+) */}
+      <div
+        ref={sheetRef}
+        className="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center"
+      >
+        <div
+          className="
+            w-full md:max-w-2xl
+            bg-slate-950/95 border border-slate-800 shadow-2xl
+            rounded-t-2xl md:rounded-2xl overflow-hidden
+          "
+          style={{ maxHeight: "92vh" }}
+          role="dialog"
+          aria-modal="true"
+        >
+          {/* Header con gradiente */}
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-cyan-500/10 to-fuchsia-500/10" />
+            <div className="relative px-4 py-3 md:px-5 md:py-4 flex items-center gap-2 border-b border-slate-800">
+              <button
+                onClick={() => router.push("/pending")}
+                className="rounded-xl bg-slate-900/80 px-2.5 py-1.5 text-slate-200 hover:bg-slate-800 border border-slate-700"
+                title="Cerrar"
+              >
+                ✕
+              </button>
+              <div className="text-base md:text-lg font-semibold">Clasificar paro</div>
+              <div className="ml-auto hidden md:block">
+                <Link
+                  href="/"
+                  className="px-3 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-slate-200"
+                  title="Dashboard"
+                >
+                  ↺ Dashboard
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Contenido scrollable */}
+          <div className="px-4 md:px-5 py-4 md:py-5 overflow-y-auto">
+            {loading && (
+              <div className="grid gap-3 animate-pulse">
+                <div className="h-5 w-40 bg-slate-800 rounded" />
+                <div className="grid md:grid-cols-3 gap-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="rounded-xl bg-slate-900 p-4">
+                      <div className="h-3 w-20 bg-slate-800 rounded mb-2" />
+                      <div className="h-5 w-32 bg-slate-800 rounded" />
+                    </div>
+                  ))}
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="rounded-xl bg-slate-900 p-4 h-20" />
+                  ))}
+                </div>
+                <div className="rounded-xl bg-slate-900 p-4 h-40" />
+              </div>
+            )}
+
+            {error && (
+              <div className="bg-red-900/30 border border-red-700 text-red-200 rounded-xl p-4">
+                {error}
+              </div>
+            )}
+
+            {!loading && !error && event && (
+              <div className="space-y-6">
+                {/* Datos del evento */}
+                <div className="grid md:grid-cols-3 gap-3">
+                  <StatCard label="Línea" value={event.line_name ?? "—"} />
+                  <StatCard label="Máquina" value={event.machine_name ?? "—"} />
+                  <StatCard
+                    label="Duración"
+                    value={
+                      typeof event.duration_s === "number"
+                        ? `${Math.max(0, Math.round(event.duration_s / 60))} min`
+                        : "—"
+                    }
+                  />
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <StatCard label="Inicio" value={fmt(event.started_at)} />
+                  <StatCard label="Fin" value={fmt(event.ended_at)} />
+                </div>
+
+                {/* Stepper */}
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <Step active={true}>Nivel 1</Step>
+                  <span className="w-8 h-px bg-slate-700" />
+                  <Step active={!!selL1}>Nivel 2</Step>
+                  <span className="w-8 h-px bg-slate-700" />
+                  <Step active={!!selL2}>Nivel 3</Step>
+                </div>
+
+                {/* Cascada L1 → L2 → L3 */}
+                <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-4 space-y-4">
+                  <div className="grid md:grid-cols-3 gap-3">
+                    <Field label="Nivel 1">
+                      <SelectModern value={selL1} onChange={setSelL1}>
+                        <option value="">— Selecciona L1 —</option>
+                        {l1Options.map((n) => (
+                          <option key={n.id} value={n.id}>
+                            {n.name}
+                          </option>
+                        ))}
+                      </SelectModern>
+                    </Field>
+
+                    <Field label="Nivel 2">
+                      <SelectModern
+                        value={selL2}
+                        onChange={setSelL2}
+                        disabled={!l1SelectedNode}
+                      >
+                        <option value="">{l1SelectedNode ? "— Selecciona L2 —" : "Selecciona L1 primero"}</option>
+                        {l2Options
+                          .slice()
+                          .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                          .map((n) => (
+                            <option key={n.id} value={n.id}>
+                              {n.name}
+                            </option>
+                          ))}
+                      </SelectModern>
+                    </Field>
+
+                   {/* L3 */}
+<Field label="Nivel 3">
+  <SelectModern
+    value={selL3}
+    onChange={setSelL3}
+    disabled={!selL2} // deshabilitado hasta que haya L2
+  >
+    <option value="">
+      {selL2 ? "— Selecciona L3 —" : "Selecciona L2 primero"}
+    </option>
+    {l3Options
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+      .map((n) => (
+        <option key={n.id} value={n.id}>
+          {n.name}
+        </option>
+      ))}
+  </SelectModern>
+</Field>
+                  </div>
+
+                  {/* Hint: requiere detalle */}
+                  {selectedLeafRequiresDetail && (
+                    <div className="text-xs text-amber-300">
+                      Este motivo sugiere añadir detalle.
+                    </div>
+                  )}
+
+                  {/* Notas */}
+                  <Field label="Notas">
+                    <textarea
+                      className="w-full min-h-[96px] rounded-xl bg-slate-900 text-slate-100 p-3 outline-none border border-slate-700 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600/40"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Detalle opcional…"
+                    />
+                  </Field>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={clearAll}
+                      type="button"
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                    >
+                      Limpiar selección
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sticky action bar */}
+          <div className="px-4 md:px-5 py-3 border-t border-slate-800 bg-slate-950/95 flex items-center gap-2">
             <button
               onClick={() => router.push("/pending")}
-              className="rounded-xl bg-slate-800 px-3 py-1.5 text-slate-200 hover:bg-slate-700 border border-slate-700"
-              title="Volver a Pendientes"
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
             >
-              ← Pendientes
+              Cancelar
             </button>
+            <div className="ml-auto" />
             <button
-              onClick={() => router.push("/dashboard")}
-              className="rounded-xl bg-slate-800 px-3 py-1.5 text-slate-200 hover:bg-slate-700 border border-slate-700"
-              title="Ir al Dashboard"
+              onClick={save}
+              disabled={isSaving || !selectedLeafId || !!error || loading}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-slate-900 font-medium"
             >
-              ⤴︎ Dashboard
+              {isSaving ? "Guardando…" : "Guardar clasificación"}
             </button>
           </div>
-          <div className="text-lg sm:text-xl font-semibold truncate">Clasificar paro</div>
         </div>
-      </header>
-
-      <section className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
-        {(loading || taxLoading) && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">Cargando…</div>
-        )}
-
-        {err && !(loading || taxLoading) && (
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-200">
-            {err}
-          </div>
-        )}
-
-        {!loading && !taxLoading && taxErr && (
-          <div className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200">
-            {taxErr} — Los selectores usarán opciones vacías.
-          </div>
-        )}
-
-        {!loading && !taxLoading && row && (
-          <div className="space-y-6">
-            {/* Ficha */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 text-xs rounded-lg bg-slate-800">
-                    {row.line_code ?? "—"}
-                  </span>
-                  <span className="text-slate-400">{row.machine_code ?? "—"}</span>
-                </div>
-                <div className="text-sm text-slate-300">
-                  Duración: <span className="font-medium">{hmsFromMin(row.duration_min)}</span>
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-slate-300">
-                <div>
-                  <span className="text-slate-400">Inicio: </span>
-                  {row.started_at ? dtf.format(new Date(row.started_at)) : "—"}
-                </div>
-                <div>
-                  <span className="text-slate-400">Fin:&nbsp;&nbsp;&nbsp;</span>
-                  {row.ended_at ? dtf.format(new Date(row.ended_at)) : "—"}
-                </div>
-              </div>
-            </div>
-
-            {/* Form */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-300 mb-1">Nivel 1</label>
-                  <select
-                    value={lvl1}
-                    onChange={(e) => setLvl1(e.target.value)}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="">— Selecciona —</option>
-                    {lvl1Options.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-300 mb-1">Nivel 2</label>
-                  <select
-                    value={lvl2}
-                    onChange={(e) => setLvl2(e.target.value)}
-                    disabled={!lvl1}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="">
-                      {lvl1 ? "— Selecciona —" : "Selecciona Nivel 1 primero"}
-                    </option>
-                    {lvl2Options.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-300 mb-1">
-                    Nivel 3 {mustLvl3 && <span className="text-amber-300">(requerido)</span>}
-                  </label>
-                  <input
-                    value={lvl3}
-                    onChange={(e) => setLvl3(e.target.value)}
-                    placeholder={
-                      mustLvl3 ? "Detalle técnico (requerido para este N2)" : "Detalle (opcional)"
-                    }
-                    disabled={!lvl2}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
-                  {selectedRule?.lvl3_default && (
-                    <p className="mt-1 text-xs text-slate-400">Sugerido: {selectedRule.lvl3_default}</p>
-                  )}
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-2 sm:justify-end mt-2">
-                  <button
-                    onClick={() => router.push("/pending")}
-                    className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200 hover:bg-slate-700"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    disabled={!canSave || saving}
-                    onClick={handleSave}
-                    className={`rounded-xl px-4 py-2 font-medium transition ${
-                      !canSave || saving
-                        ? "bg-emerald-700/40 text-emerald-200 cursor-not-allowed"
-                        : "bg-emerald-500 text-slate-900 hover:bg-emerald-400"
-                    }`}
-                  >
-                    {saving ? "Guardando…" : "Guardar"}
-                  </button>
-                </div>
-
-                {!canSave && mustLvl3 && (
-                  <p className="text-xs text-amber-300">
-                    Este motivo requiere Nivel 3. Completa el campo para poder guardar.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
+/* ---------- UI helpers ---------- */
 
+function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-slate-300 text-sm">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-4">
+      <div className="text-xs text-slate-400 mb-1">{label}</div>
+      <div className="text-slate-100">{value}</div>
+    </div>
+  );
+}
+
+function Step({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={`h-5 w-5 rounded-full grid place-items-center text-[10px] ${
+          active ? "bg-emerald-600 text-slate-900" : "bg-slate-700 text-slate-300"
+        }`}
+      >
+        {active ? "✓" : "•"}
+      </span>
+      <span className={active ? "text-slate-200" : "text-slate-400"}>{children}</span>
+    </div>
+  );
+}
+
+// Select con borde “glass/gradient” sutil
+function SelectModern({
+  value,
+  onChange,
+  disabled,
+  children,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-xl p-[1px] bg-gradient-to-r from-emerald-600/40 via-cyan-600/40 to-fuchsia-600/40 ${
+        disabled ? "opacity-60" : ""
+      }`}
+    >
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="w-full rounded-[11px] bg-slate-950 text-slate-100 p-3 outline-none border border-slate-700
+                   focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600/40"
+      >
+        {children}
+      </select>
+    </div>
+  );
+}

@@ -17,10 +17,13 @@ type KpiRow = {
   quality: number | null;
   oee: number | null;
 };
-type KpisResponse = { ok: boolean; rows: KpiRow[]; error?: string };
-type PendingCountResponse = { ok: boolean; count: number; error?: string };
-type SeriesRow = { bucket_ts: string; line_code: string | null; oee: number | null };
-type SeriesResp = { ok: boolean; rows: SeriesRow[]; error?: string };
+type KpisResponse = {
+  ok: boolean;
+  rows?: KpiRow[];
+  series?: { bucket_ts: string; line_code: string | null; oee: number | null }[];
+  pending?: number;
+  error?: string;
+};
 
 /* =========================
    Helpers
@@ -192,7 +195,7 @@ function KpiCard({
 }) {
   const v = clamp01(valueNum ?? 0);
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] backdrop-blur">
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-5 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] backdrop-blur">
       <div className="flex items-center justify-between">
         <div className="text-slate-200/90 text-sm">{title}</div>
         {subtitle ? (
@@ -308,42 +311,52 @@ export default function DashboardPage() {
     })();
   }, [hydrated, supabase]);
 
-  // datos
+  // ========================
+  //  Fetch único de KPIs + pending + series
+  // ========================
   useEffect(() => {
     if (!hydrated || !fromISO || !toISO) return;
     let mounted = true;
+
+    const safeJson = async (res: Response) => {
+      try {
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(txt || `HTTP ${res.status}`);
+        }
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) return null;
+        return await res.json();
+      } catch {
+        return null;
+      }
+    };
 
     (async () => {
       try {
         setLoading(true);
         setErr(null);
-        const [kpisRes, pendingRes, seriesRes] = await Promise.all([
-          fetch(`/api/kpis?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`),
-          fetch(`/api/pending-count?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`),
-          fetch(`/api/kpis-series?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`),
-        ]);
 
-        const kpisJson = (await kpisRes.json()) as KpisResponse | any;
-        const pendJson = (await pendingRes.json()) as PendingCountResponse | any;
-        const seriesJson = (await seriesRes.json()) as SeriesResp | any;
+        const q = new URLSearchParams({ from: fromISO, to: toISO, step: "all" }).toString();
+        const res = await fetch(`/api/kpis?${q}`);
+        const json = (await safeJson(res)) as KpisResponse | null;
 
         if (!mounted) return;
 
-        setRows(
-          kpisJson?.ok
-            ? (kpisJson.rows || []).slice().sort((a: KpiRow, b: KpiRow) =>
-                (a.line_code || "").localeCompare(b.line_code || "")
-              )
-            : []
-        );
-        if (!kpisJson?.ok) setErr(kpisJson?.error || "Error cargando KPIs");
+        // KPIs
+        const kRows = json?.ok ? (json.rows || []) : [];
+        setRows(kRows.slice().sort((a, b) => (a.line_code || "").localeCompare(b.line_code || "")));
+        if (!json?.ok && json?.error) setErr(json.error);
 
-        setPendingCount(pendJson?.ok ? Number(pendJson.count ?? 0) : 0);
+        // Pending
+        setPendingCount(Number(json?.pending ?? 0));
 
+        // Series
         const by: Record<string, number[]> = {};
-        if (seriesJson?.ok) {
-          const arr = (seriesJson.rows || []) as SeriesRow[];
-          arr.sort((a, b) => new Date(a.bucket_ts).getTime() - new Date(b.bucket_ts).getTime());
+        if (json?.ok && json.series?.length) {
+          const arr = json.series.slice().sort(
+            (a, b) => new Date(a.bucket_ts).getTime() - new Date(b.bucket_ts).getTime()
+          );
           for (const r of arr) {
             const code = (r.line_code || "—").toUpperCase();
             if (!by[code]) by[code] = [];
@@ -384,7 +397,7 @@ export default function DashboardPage() {
   const rangeBtn = (r: "24h" | "7d" | "30d") =>
     `px-3 py-1 rounded-lg text-xs ${
       range === r
-        ? "bg-emerald-600 text-white"
+        ? "bg-emerald-500 text-emerald-950 font-medium shadow-[0_10px_25px_-10px_rgba(16,185,129,.7)]"
         : "bg-slate-800 text-slate-300 hover:bg-slate-700"
     }`;
 
@@ -407,15 +420,9 @@ export default function DashboardPage() {
               </span>
             )}
             <div className="flex items-center gap-1.5">
-              <button className={rangeBtn("24h")} onClick={() => setRange("24h")}>
-                24h
-              </button>
-              <button className={rangeBtn("7d")} onClick={() => setRange("7d")}>
-                7d
-              </button>
-              <button className={rangeBtn("30d")} onClick={() => setRange("30d")}>
-                30d
-              </button>
+              <button className={rangeBtn("24h")} onClick={() => setRange("24h")}>24h</button>
+              <button className={rangeBtn("7d")} onClick={() => setRange("7d")}>7d</button>
+              <button className={rangeBtn("30d")} onClick={() => setRange("30d")}>30d</button>
             </div>
             <SignOutButton />
           </div>
@@ -424,11 +431,12 @@ export default function DashboardPage() {
 
       {/* ===== Contenido ===== */}
       <section className="max-w-7xl mx-auto px-5 py-8">
-        {/* KPIs globales (con filtro) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        {/* KPIs globales (con filtro) — ahora 4 tarjetas incluyendo Q */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
           <KpiCard title="OEE" valueNum={agg?.oee} value={!hydrated || loading ? "…" : pct(agg?.oee)} subtitle="A × P × Q" />
           <KpiCard title="Disponibilidad" valueNum={agg?.availability} value={!hydrated || loading ? "…" : pct(agg?.availability)} />
           <KpiCard title="Rendimiento" valueNum={agg?.performance} value={!hydrated || loading ? "…" : pct(agg?.performance)} />
+          <KpiCard title="Calidad" valueNum={agg?.quality} value={!hydrated || loading ? "…" : pct(agg?.quality)} />
         </div>
 
         {err && (
@@ -583,7 +591,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Pendientes */}
+        {/* Pendientes + CTA */}
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
             <div className="text-sm text-slate-300/80">Paros sin clasificar</div>
@@ -602,3 +610,4 @@ export default function DashboardPage() {
     </main>
   );
 }
+

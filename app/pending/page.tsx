@@ -17,7 +17,10 @@ type PendingRow = {
   classified: boolean | null;
 };
 
-type ApiResp = { ok: boolean; rows?: PendingRow[]; error?: string } | any;
+type ApiResp =
+  | { ok: true; rows: PendingRow[] }
+  | { ok: false; error: string }
+  | any;
 
 const dtf = new Intl.DateTimeFormat("es-ES", {
   year: "2-digit",
@@ -37,51 +40,72 @@ function hmsFromMin(min: number | null) {
 
 function chipColorByMinutes(min: number | null) {
   if (min == null) return "bg-slate-700 text-slate-200";
-  if (min < 15) return "bg-emerald-600/20 text-emerald-300 border border-emerald-600/30";
-  if (min < 60) return "bg-amber-600/20 text-amber-300 border border-amber-600/30";
+  if (min < 15)
+    return "bg-emerald-600/20 text-emerald-300 border border-emerald-600/30";
+  if (min < 60)
+    return "bg-amber-600/20 text-amber-300 border border-amber-600/30";
   return "bg-rose-600/20 text-rose-300 border border-rose-600/30";
+}
+
+// util: date string (yyyy-mm-dd) -> ISO inicio/fin del día (local)
+function dayStartISO(d: string) {
+  const x = new Date(d + "T00:00:00");
+  return x.toISOString();
+}
+function dayEndISO(d: string) {
+  const x = new Date(d + "T23:59:59.999");
+  return x.toISOString();
+}
+
+// abrir calendario solo dentro de gesto de usuario
+function safeOpenPicker(el: HTMLInputElement | null) {
+  if (!el) return;
+  // Algunos navegadores exigen gesto; si falla, ignoramos
+  try {
+    // @ts-ignore
+    if (typeof el.showPicker === "function") el.showPicker();
+    else el.focus();
+  } catch {
+    el.focus();
+  }
 }
 
 export default function PendingPage() {
   const router = useRouter();
 
-  // rango
-  const [fromISO, setFromISO] = useState("");
-  const [toISO, setToISO] = useState("");
-
   // filtros
   const [lineFilter, setLineFilter] = useState<string>("ALL");
   const [query, setQuery] = useState<string>("");
+
+  // filtro por fecha (opcional). Por defecto vacío => “todos”
+  const [fromDay, setFromDay] = useState<string>(""); // "YYYY-MM-DD"
+  const [toDay, setToDay] = useState<string>("");
 
   // datos
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // presets rango inicial 24h
-  useEffect(() => {
-    const to = new Date();
-    const from = new Date(Date.now() - 24 * 3600 * 1000);
-    setToISO(to.toISOString());
-    setFromISO(from.toISOString());
-  }, []);
-
   async function load() {
-    if (!fromISO || !toISO) return;
     setLoading(true);
     setErr(null);
     try {
-      const qs = new URLSearchParams({
-        from: fromISO,
-        to: toISO,
-        limit: "400",
-        ...(lineFilter !== "ALL" ? { line: lineFilter } : {}),
-      }).toString();
+      const params = new URLSearchParams();
+      params.set("limit", "1000");
+      if (fromDay) params.set("from", dayStartISO(fromDay));
+      if (toDay) params.set("to", dayEndISO(toDay));
+      if (lineFilter !== "ALL") params.set("line", lineFilter);
 
-      const res = await fetch(`/api/pending?${qs}`);
+      const res = await fetch(`/api/pending?${params.toString()}`, { cache: "no-store" });
       const json: ApiResp = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "Error cargando pendientes");
-      setRows(json.rows ?? []);
+      if (!json?.ok) throw new Error((json as any)?.error ?? "Error API");
+
+      const sorted = (json.rows ?? []).slice().sort((a, b) => {
+        const ta = a.ended_at ? new Date(a.ended_at).getTime() : 0;
+        const tb = b.ended_at ? new Date(b.ended_at).getTime() : 0;
+        return ta - tb;
+      });
+      setRows(sorted);
     } catch (e: any) {
       setErr(e?.message ?? "Error inesperado");
       setRows([]);
@@ -93,7 +117,7 @@ export default function PendingPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromISO, toISO, lineFilter]);
+  }, []);
 
   const uniqueLines = useMemo(() => {
     const set = new Set<string>();
@@ -102,25 +126,15 @@ export default function PendingPage() {
   }, [rows]);
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return rows;
     const q = query.trim().toLowerCase();
+    if (!q) return rows;
     return rows.filter((r) => {
       return (
         (r.machine_code || "").toLowerCase().includes(q) ||
-        (r.line_code || "").toLowerCase().includes(q) ||
-        (r.lvl1 || "").toLowerCase().includes(q) ||
-        (r.lvl2 || "").toLowerCase().includes(q) ||
-        (r.lvl3 || "").toLowerCase().includes(q)
+        (r.line_code || "").toLowerCase().includes(q)
       );
     });
   }, [rows, query]);
-
-  function setPresetHours(h: number) {
-    const to = new Date();
-    const from = new Date(Date.now() - h * 3600 * 1000);
-    setToISO(to.toISOString());
-    setFromISO(from.toISOString());
-  }
 
   function exportCSV() {
     const headers = [
@@ -130,9 +144,6 @@ export default function PendingPage() {
       "started_at",
       "ended_at",
       "duration_min",
-      "lvl1",
-      "lvl2",
-      "lvl3",
       "classified",
     ];
     const body = filtered.map((r) =>
@@ -143,13 +154,11 @@ export default function PendingPage() {
         r.started_at ?? "",
         r.ended_at ?? "",
         r.duration_min ?? "",
-        r.lvl1 ?? "",
-        r.lvl2 ?? "",
-        r.lvl3 ?? "",
         r.classified ?? "",
       ]
         .map((x) =>
-          typeof x === "string" && x.includes(",") ? `"${x.replace(/"/g, '""')}"` : String(x)
+          typeof x === "string" && x.includes(",")
+            ? `"${x.replace(/"/g, '""')}"` : String(x)
         )
         .join(",")
     );
@@ -166,19 +175,12 @@ export default function PendingPage() {
   return (
     <main className="min-h-screen bg-slate-950">
       {/* Header */}
-      <header
-        className="
-          sticky top-0 z-20
-          bg-slate-950 border-b border-slate-800
-          px-4 sm:px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3
-        "
-      >
+      <header className="sticky top-0 z-20 bg-slate-950 border-b border-slate-800 px-4 sm:px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
         <div className="max-w-6xl mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => router.push('/dashboard')}
+              onClick={() => router.push("/dashboard")}
               className="rounded-xl bg-slate-800 px-3 py-1.5 text-slate-200 hover:bg-slate-700 border border-slate-700"
-              title="Volver al Dashboard"
             >
               ← Volver
             </button>
@@ -187,40 +189,14 @@ export default function PendingPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setPresetHours(24)}
-              className={`px-3 py-1.5 rounded-lg border ${
-                Math.abs(new Date(toISO).getTime() - new Date(fromISO).getTime() - 24 * 3600 * 1000) < 1000
-                  ? "bg-emerald-600 text-white border-emerald-600"
-                  : "border-slate-700 text-slate-300 hover:bg-slate-800/60"
-              }`}
-            >
-              24h
-            </button>
-            <button
-              onClick={() => setPresetHours(48)}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/60"
-            >
-              48h
-            </button>
-            <button
-              onClick={() => setPresetHours(24 * 7)}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/60"
-            >
-              7d
-            </button>
-
-            <button
               onClick={load}
               className="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-900 font-medium hover:bg-emerald-400"
-              title="Recargar"
             >
               Recargar
             </button>
-
             <button
               onClick={exportCSV}
               className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/60"
-              title="Exportar CSV"
             >
               Exportar CSV
             </button>
@@ -230,27 +206,84 @@ export default function PendingPage() {
 
       {/* Filtros, lista */}
       <section className="max-w-6xl mx-auto px-4 sm:px-6 py-6 text-slate-100">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={lineFilter}
-              onChange={(e) => setLineFilter(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="ALL">Todas las líneas</option>
-              {Array.from(new Set(rows.map(r => r.line_code).filter(Boolean) as string[]))
-                .sort()
-                .map((c) => (
+        <div className="flex flex-col gap-3 md:gap-2 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-400 mb-1">Línea</label>
+              <select
+                value={lineFilter}
+                onChange={(e) => setLineFilter(e.target.value)}
+                className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              >
+                <option value="ALL">Todas</option>
+                {uniqueLines.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
-            </select>
+              </select>
+            </div>
 
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar: línea, máquina o motivo…"
-              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm w-full sm:w-72 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-400 mb-1">Buscar</label>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Línea o máquina…"
+                className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm w-[16rem] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-400 mb-1">Desde</label>
+              <input
+                type="date"
+                value={fromDay}
+                onChange={(e) => setFromDay(e.target.value)}
+                onClick={(e) => safeOpenPicker(e.currentTarget)}
+                onPointerDown={(e) => safeOpenPicker(e.currentTarget as HTMLInputElement)}
+                onTouchEnd={(e) => safeOpenPicker(e.currentTarget as unknown as HTMLInputElement)}
+                onKeyDown={(e) => e.preventDefault()}
+                onBeforeInput={(e) => e.preventDefault()}
+                onPaste={(e) => e.preventDefault()}
+                inputMode="none"
+                className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-400 mb-1">Hasta</label>
+              <input
+                type="date"
+                value={toDay}
+                onChange={(e) => setToDay(e.target.value)}
+                onClick={(e) => safeOpenPicker(e.currentTarget)}
+                onPointerDown={(e) => safeOpenPicker(e.currentTarget as HTMLInputElement)}
+                onTouchEnd={(e) => safeOpenPicker(e.currentTarget as unknown as HTMLInputElement)}
+                onKeyDown={(e) => e.preventDefault()}
+                onBeforeInput={(e) => e.preventDefault()}
+                onPaste={(e) => e.preventDefault()}
+                inputMode="none"
+                className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+
+            <button
+              onClick={load}
+              className="h-9 px-3 rounded-lg bg-emerald-500 text-slate-900 font-medium hover:bg-emerald-400"
+            >
+              Aplicar
+            </button>
+            <button
+              onClick={() => {
+                setFromDay("");
+                setToDay("");
+                setLineFilter("ALL");
+                setQuery("");
+                load();
+              }}
+              className="h-9 px-3 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/60"
+            >
+              Limpiar
+            </button>
           </div>
 
           <div className="text-sm text-slate-400">
@@ -265,7 +298,7 @@ export default function PendingPage() {
         )}
 
         <div className="mt-4">
-          {/* Desktop table */}
+          {/* Tabla desktop */}
           <div className="hidden md:block rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-slate-900/70 text-slate-400">
@@ -275,15 +308,14 @@ export default function PendingPage() {
                   <th className="text-left px-2 py-3">Inicio</th>
                   <th className="text-left px-2 py-3">Fin</th>
                   <th className="text-left px-2 py-3">Duración</th>
-                  <th className="text-left px-2 py-3">Motivo</th>
                   <th className="text-right px-4 py-3">Acción</th>
                 </tr>
               </thead>
               <tbody>
                 {!loading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-slate-400">
-                      Sin pendientes para el rango/criterio actual.
+                    <td colSpan={6} className="px-4 py-6 text-slate-400">
+                      Sin pendientes para el criterio actual.
                     </td>
                   </tr>
                 )}
@@ -296,107 +328,77 @@ export default function PendingPage() {
                       <td className="px-2 py-4"><div className="h-4 w-28 bg-slate-800 rounded" /></td>
                       <td className="px-2 py-4"><div className="h-4 w-28 bg-slate-800 rounded" /></td>
                       <td className="px-2 py-4"><div className="h-4 w-16 bg-slate-800 rounded" /></td>
-                      <td className="px-2 py-4"><div className="h-4 w-40 bg-slate-800 rounded" /></td>
                       <td className="px-4 py-4 text-right"><div className="h-8 w-24 bg-slate-800 rounded-lg" /></td>
                     </tr>
                   ))}
 
-                {!loading &&
-                  filtered.map((r) => (
-                    <tr key={r.id} className="border-t border-slate-800/60 hover:bg-slate-900/60 transition">
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-2">
-                          <span className="px-2 py-0.5 text-xs rounded-lg bg-slate-800 text-slate-200">
-                            {r.line_code ?? "—"}
-                          </span>
-                          <span className="text-slate-400">#{r.id.slice(0, 6)}</span>
+                {!loading && filtered.map((r) => (
+                  <tr key={r.id} className="border-t border-slate-800/60 hover:bg-slate-900/60 transition">
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="px-2 py-0.5 text-xs rounded-lg bg-slate-800 text-slate-200">
+                          {r.line_code ?? "—"}
                         </span>
-                      </td>
-                      <td className="px-2 py-3">{r.machine_code ?? "—"}</td>
-                      <td className="px-2 py-3">{r.started_at ? dtf.format(new Date(r.started_at)) : "—"}</td>
-                      <td className="px-2 py-3">{r.ended_at ? dtf.format(new Date(r.ended_at)) : "—"}</td>
-                      <td className="px-2 py-3">
-                        <span className={"px-2 py-0.5 rounded-md text-xs " + chipColorByMinutes(r.duration_min)}>
-                          {hmsFromMin(r.duration_min)}
-                        </span>
-                      </td>
-                      <td className="px-2 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {r.lvl1 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/80 border border-slate-700">{r.lvl1}</span>}
-                          {r.lvl2 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/60 border border-slate-700">{r.lvl2}</span>}
-                          {r.lvl3 ? (
-                            <span className="px-2 py-0.5 text-xs rounded-md bg-emerald-600/20 border border-emerald-600/30 text-emerald-300">{r.lvl3}</span>
-                          ) : (
-                            <span className="px-2 py-0.5 text-xs rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300">falta L3</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => router.push(`/pending/${r.id}`)}
-                          className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2 transition"
-                        >
-                          Clasificar →
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        <span className="text-slate-400">#{r.id.slice(0, 6)}</span>
+                      </span>
+                    </td>
+                    <td className="px-2 py-3">{r.machine_code ?? "—"}</td>
+                    <td className="px-2 py-3">{r.started_at ? dtf.format(new Date(r.started_at)) : "—"}</td>
+                    <td className="px-2 py-3">{r.ended_at ? dtf.format(new Date(r.ended_at)) : "—"}</td>
+                    <td className="px-2 py-3">
+                      <span className={"px-2 py-0.5 rounded-md text-xs " + chipColorByMinutes(r.duration_min)}>
+                        {hmsFromMin(r.duration_min)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => router.push(`/pending/${r.id}`)}
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2 transition"
+                      >
+                        Clasificar →
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
 
-          {/* Mobile cards */}
+          {/* Mobile */}
           <div className="md:hidden grid grid-cols-1 gap-3">
-            {loading &&
-              Array.from({ length: 6 }).map((_, i) => (
-                <div key={`skm-${i}`} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-                  <div className="h-4 w-28 bg-slate-800 rounded mb-3" />
-                  <div className="h-4 w-full bg-slate-800 rounded mb-2" />
-                  <div className="h-4 w-2/3 bg-slate-800 rounded" />
-                </div>
-              ))}
-
             {!loading && filtered.length === 0 && (
               <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-slate-400">
-                Sin pendientes para el rango/criterio actual.
+                Sin pendientes para el criterio actual.
               </div>
             )}
 
-            {!loading &&
-              filtered.map((r) => (
-                <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 text-xs rounded-lg bg-slate-800">{r.line_code ?? "—"}</span>
-                      <span className="text-slate-400">{r.machine_code ?? "—"}</span>
-                    </div>
-                    <span className={"px-2 py-0.5 rounded-md text-xs " + chipColorByMinutes(r.duration_min)}>
-                      {hmsFromMin(r.duration_min)}
+            {!loading && filtered.map((r) => (
+              <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 text-xs rounded-lg bg-slate-800">
+                      {r.line_code ?? "—"}
                     </span>
+                    <span className="text-slate-400">{r.machine_code ?? "—"}</span>
                   </div>
-                  <div className="mt-2 text-sm text-slate-300">
-                    <div><span className="text-slate-400">Inicio: </span>{r.started_at ? dtf.format(new Date(r.started_at)) : "—"}</div>
-                    <div><span className="text-slate-400">Fin:&nbsp;&nbsp;&nbsp;&nbsp;</span>{r.ended_at ? dtf.format(new Date(r.ended_at)) : "—"}</div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {r.lvl1 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/80 border border-slate-700">{r.lvl1}</span>}
-                      {r.lvl2 && <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800/60 border border-slate-700">{r.lvl2}</span>}
-                      {r.lvl3 ? (
-                        <span className="px-2 py-0.5 text-xs rounded-md bg-emerald-600/20 border border-emerald-600/30 text-emerald-300">{r.lvl3}</span>
-                      ) : (
-                        <span className="px-2 py-0.5 text-xs rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300">falta L3</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-3 text-right">
-                    <button
-                      onClick={() => router.push(`/pending/${r.id}`)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2 transition"
-                    >
-                      Clasificar →
-                    </button>
-                  </div>
+                  <span className={"px-2 py-0.5 rounded-md text-xs " + chipColorByMinutes(r.duration_min)}>
+                    {hmsFromMin(r.duration_min)}
+                  </span>
                 </div>
-              ))}
+                <div className="mt-2 text-sm text-slate-300">
+                  <div><span className="text-slate-400">Inicio: </span>{r.started_at ? dtf.format(new Date(r.started_at)) : "—"}</div>
+                  <div><span className="text-slate-400">Fin:&nbsp;&nbsp;&nbsp;&nbsp;</span>{r.ended_at ? dtf.format(new Date(r.ended_at)) : "—"}</div>
+                </div>
+                <div className="mt-3 text-right">
+                  <button
+                    onClick={() => router.push(`/pending/${r.id}`)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2 transition"
+                  >
+                    Clasificar →
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
