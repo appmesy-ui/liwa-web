@@ -11,7 +11,7 @@ type RowUI = {
   performance: number | null;  // 0–1
   quality: number | null;      // 0–1
   oee: number | null;          // 0–1
-  trend_pp: number;            // delta (ventana actual - ventana anterior) en puntos porcentuales
+  trend_pp: number;            // delta en puntos porcentuales
 };
 
 type SeriesPointFlat = {
@@ -56,13 +56,13 @@ export async function GET(req: NextRequest) {
     const step = (searchParams.get("step") ?? "all") as "all" | "kpis" | "series";
     const lineFilter = searchParams.get("line"); // filtra por nombre/código de línea
 
-    // Duración y bucket (hora para <=3 días; día si no)
+    // Duración y bucket
     const fromMs = new Date(fromISO).getTime();
     const toMs = new Date(toISO).getTime();
     const windowMs = Math.max(0, toMs - fromMs);
     const bucket: "hour" | "day" = windowMs <= 3 * 24 * 3600 * 1000 ? "hour" : "day";
 
-    // Ventana anterior (misma duración inmediatamente previa)
+    // Ventana anterior
     const prevToISO = new Date(fromMs).toISOString();
     const prevFromISO = new Date(fromMs - windowMs).toISOString();
 
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
       ).toISOString();
     };
 
-    // Buscar shifts que se SOLAPAN con [from, to): starts_at < to  AND  ends_at > from
+    // Buscar shifts que se SOLAPAN con [from, to)
     const findShiftIds = async (from: string, to: string) => {
       const { data, error } = await admin
         .from("v_shift_instances_resolved")
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
       return { ids, timeByShift };
     };
 
-    // Trae OEE por shift para una lista de shifts
+    // Trae OEE por shift
     const fetchOeeByShifts = async (shiftIds: string[]) => {
       if (!shiftIds.length) return [] as OeeRow[];
       const { data, error } = await admin
@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
       for (const r of rows) {
         const lid = r.line_id;
         const w = Math.max(0, toNum(r.planned_time_s));
-        if (!w) continue; // evita dividir por 0 y “cero contaminante”
+        if (!w) continue;
         if (!byLine.has(lid)) {
           byLine.set(lid, {
             plant_id: r.plant_id ?? null,
@@ -164,9 +164,9 @@ export async function GET(req: NextRequest) {
     const nowRows = await fetchOeeByShifts(nowShiftIds);
     const nowAgg = aggregateByLine(nowRows);
 
-    // Si no hay datos en la ventana actual, responder vacío (y evitar “ceros” aparentes)
+    // Si no hay datos, devolvemos vacío pero con pending real
     if (nowAgg.size === 0) {
-      const pending = await countPending(admin, fromISO, toISO, lineFilter);
+      const pending = await countPending(admin as any, fromISO, toISO, lineFilter);
       const payload: any = { ok: true, pending, rows: [], series: [] };
       if (step === "kpis") delete payload.series;
       if (step === "series") delete payload.rows;
@@ -184,8 +184,7 @@ export async function GET(req: NextRequest) {
     ];
     const nameById = await fetchLineNames(allLineIds);
 
-    // ====== Series planas para sparkline (ventana actual) ======
-    // Bucketing por hora o día usando starts_at del shift
+    // ====== Series planas (sparkline) ======
     type BAcc = { w: number; sumO: number; t: string };
     const byLineBucket = new Map<string, Map<string, BAcc>>();
 
@@ -214,7 +213,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ====== Construir filas con tendencia (actual vs anterior) ======
+    // ====== Filas con tendencia ======
     let rows: RowUI[] = [];
     for (const [lid, acc] of nowAgg.entries()) {
       const name = nameById.get(lid) ?? null;
@@ -229,10 +228,7 @@ export async function GET(req: NextRequest) {
       if (prev) {
         const pw = Math.max(1, prev.totalPlan);
         const prevO = prev.sumO / pw;
-        trend_pp = (curO - prevO) * 100; // puntos porcentuales
-      } else {
-        // si no hay ventana anterior para esa línea, deja 0 (neutro)
-        trend_pp = 0;
+        trend_pp = (curO - prevO) * 100;
       }
 
       rows.push({
@@ -247,7 +243,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Filtro por línea si se pidió (match exacto case-insensitive sobre nombre/código)
+    // Filtro por línea exacto (case-insensitive) si se pidió
     if (lineFilter) {
       const needle = lineFilter.toUpperCase();
       rows = rows.filter((x) => (x.line_code ?? "").toUpperCase() === needle);
@@ -257,7 +253,7 @@ export async function GET(req: NextRequest) {
     rows.sort((a, b) => (b.oee ?? 0) - (a.oee ?? 0));
 
     // Paros sin clasificar
-    const pending = await countPending(admin, fromISO, toISO, lineFilter);
+    const pending = await countPending(admin as any, fromISO, toISO, lineFilter);
 
     // ====== Respuesta ======
     const payload: any = { ok: true, pending };
@@ -276,33 +272,43 @@ export async function GET(req: NextRequest) {
 
 /** Conteo de paros sin clasificar en el rango [fromISO, toISO) */
 async function countPending(
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   fromISO: string,
   toISO: string,
   lineFilter: string | null
 ): Promise<number> {
-  const base = admin
-    .from("v_pending_events_ui")
-    .select("id", { count: "exact" })
-    .eq("is_pending", true)
-    .lt("started_at", toISO)
-    .or(`ended_at.is.null,ended_at.gte.${fromISO}`);
+  // Base común de filtros (sin línea)
+  const baseFilters = (q: any) =>
+    q
+      .eq("is_pending", true)
+      .lt("started_at", toISO)
+      .or(`ended_at.is.null,ended_at.gte.${fromISO}`);
 
   if (!lineFilter) {
-    const { count, error } = await base.range(0, 0);
+    const { count, error } = await baseFilters(
+      admin.from("v_pending_events_ui").select("id", { count: "exact" })
+    ).range(0, 0);
     if (error && (error as any).code !== "PGRST116") throw error;
     return count ?? 0;
   }
 
   const pat = `%${lineFilter}%`;
-  const byName = base.clone().ilike("line_name", pat);
-  const { count: c1, error: e1 } = await byName.range(0, 0);
-  if (e1 && (e1 as any).code !== "PGRST116") throw e1;
-  if ((c1 ?? 0) > 0) return c1 ?? 0;
 
-  const byCode = base.clone().ilike("line_code", pat);
-  const { count: c2, error: e2 } = await byCode.range(0, 0);
-  if (e2 && (e2 as any).code !== "PGRST116") throw e2;
+  // 1) buscar por nombre de línea
+  {
+    const { count, error } = await baseFilters(
+      admin.from("v_pending_events_ui").select("id", { count: "exact" }).ilike("line_name", pat)
+    ).range(0, 0);
+    if (error && (error as any).code !== "PGRST116") throw error;
+    if ((count ?? 0) > 0) return count ?? 0;
+  }
 
-  return c2 ?? 0;
+  // 2) si no hubo match, buscar por código
+  {
+    const { count, error } = await baseFilters(
+      admin.from("v_pending_events_ui").select("id", { count: "exact" }).ilike("line_code", pat)
+    ).range(0, 0);
+    if (error && (error as any).code !== "PGRST116") throw error;
+    return count ?? 0;
+  }
 }
