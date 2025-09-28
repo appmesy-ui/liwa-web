@@ -7,12 +7,17 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(_req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies, options: { db: { schema: "liwa" } } });
+  // OJO: createRouteHandlerClient no admite "options"
+  const supabase = createRouteHandlerClient({ cookies });
 
-  const { data: sessionData } = await supabase.auth.getSession();
+  const { data: sessionData, error: sErr } = await supabase.auth.getSession();
+  if (sErr) {
+    return NextResponse.json({ ok: false, error: sErr.message }, { status: 500 });
+  }
   if (!sessionData?.session) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
+
   const user = sessionData.session.user;
 
   const { data: memberships, error: mErr } = await supabase
@@ -47,5 +52,9 @@ export async function GET(_req: NextRequest) {
     }));
   }
 
-  return NextResponse.json({ ok: true, user: { id: user.id, email: user.email }, orgs });
+  return NextResponse.json({
+    ok: true,
+    user: { id: user.id, email: user.email },
+    orgs,
+  });
 }
