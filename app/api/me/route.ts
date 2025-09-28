@@ -3,58 +3,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// Importante: este handler debe correr en Node.js (no Edge)
+export const runtime = "nodejs";
 
 export async function GET(_req: NextRequest) {
-  // OJO: createRouteHandlerClient no admite "options"
-  const supabase = createRouteHandlerClient({ cookies });
+  try {
+    const cookieStore = cookies();
+    // OJO: este helper solo acepta { cookies }, nada de "options"
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
-  const { data: sessionData, error: sErr } = await supabase.auth.getSession();
-  if (sErr) {
-    return NextResponse.json({ ok: false, error: sErr.message }, { status: 500 });
-  }
-  if (!sessionData?.session) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  }
+    const {
+      data: { session },
+      error: sessionErr,
+    } = await supabase.auth.getSession();
 
-  const user = sessionData.session.user;
-
-  const { data: memberships, error: mErr } = await supabase
-    .schema("liwa")
-    .from("org_members")
-    .select("org_id, role")
-    .eq("user_id", user.id);
-
-  if (mErr) {
-    return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
-  }
-
-  let orgs: Array<{ id: string; name: string | null; role: string | null }> = [];
-  if ((memberships?.length ?? 0) > 0) {
-    const orgIds = memberships!.map((m) => m.org_id).filter(Boolean) as string[];
-
-    const { data: orgRows, error: oErr } = await supabase
-      .schema("liwa")
-      .from("orgs")
-      .select("id, name")
-      .in("id", orgIds);
-
-    if (oErr) {
-      return NextResponse.json({ ok: false, error: oErr.message }, { status: 400 });
+    if (sessionErr) {
+      return NextResponse.json(
+        { ok: false, error: sessionErr.message },
+        { status: 500 }
+      );
     }
 
-    const nameById = new Map((orgRows ?? []).map((o) => [o.id, o.name]));
-    orgs = memberships!.map((m: any) => ({
-      id: m.org_id as string,
-      name: nameById.get(m.org_id as string) ?? null,
-      role: m.role ?? null,
-    }));
-  }
+    if (!session) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
 
-  return NextResponse.json({
-    ok: true,
-    user: { id: user.id, email: user.email },
-    orgs,
-  });
+    // Si luego quieres leer en el esquema 'liwa':
+    // const { data: profile } = await supabase
+    //   .schema("liwa")
+    //   .from("profiles")
+    //   .select("*")
+    //   .eq("id", session.user.id)
+    //   .single();
+
+    return NextResponse.json({
+      ok: true,
+      user: session.user,
+      // profile, // ← descomenta si usas la consulta de arriba
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unexpected error" },
+      { status: 500 }
+    );
+  }
 }
