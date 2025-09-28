@@ -4,50 +4,46 @@ import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
+const PUBLIC_PREFIXES = ["/login", "/auth/callback"];
+
 export default function AuthSync() {
   const supabase = createClientComponentClient();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    let cancelled = false;
+    const isPublic = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
 
-    const check = async () => {
-      const { data } = await supabase.auth.getSession();
-      const session = data.session;
-
-      // Sin sesión -> proteger (excepto /signin y /auth/callback)
-      if (!session && pathname !== "/signin" && !pathname.startsWith("/auth/callback")) {
-        if (!cancelled) router.replace("/signin");
-        return;
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      // 🔹 Se dispara una sola vez al montar con el estado real de la sesión
+      if (event === "INITIAL_SESSION") {
+        if (!session && !isPublic) {
+          const next = encodeURIComponent(pathname || "/dashboard");
+          router.replace(`/login?next=${next}`);
+          return;
+        }
+        if (session && pathname === "/login") {
+          const url = new URL(typeof window !== "undefined" ? window.location.href : "http://x");
+          const next = url.searchParams.get("next") || "/dashboard";
+          router.replace(next);
+        }
       }
 
-      // Con sesión -> evitar quedarse en /signin
-      if (session && pathname === "/signin") {
-        if (!cancelled) router.replace("/dashboard");
-      }
-    };
-
-    // Chequeo inicial
-    check();
-
-    // Escuchar cambios de auth
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      // 🔹 Cambios posteriores (login/logout)
       if (event === "SIGNED_IN") {
-        // Dar tiempo a que se hidrate sesión en cliente
-        setTimeout(() => !cancelled && check(), 300);
-      } else {
-        !cancelled && check();
+        const url = new URL(typeof window !== "undefined" ? window.location.href : "http://x");
+        const next = url.searchParams.get("next") || "/dashboard";
+        router.replace(next);
       }
+      if (event === "SIGNED_OUT") {
+        const next = encodeURIComponent(pathname || "/dashboard");
+        router.replace(`/login?next=${next}`);
+      }
+      // TOKEN_REFRESHED / USER_UPDATED → no-op
     });
 
-    return () => {
-      cancelled = true;
-      sub?.subscription?.unsubscribe();
-    };
+    return () => sub.subscription.unsubscribe();
   }, [pathname, router, supabase]);
 
   return null;
 }
-
-

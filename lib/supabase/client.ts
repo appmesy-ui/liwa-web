@@ -1,3 +1,4 @@
+// lib/supabase/client.ts
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let browserClient: SupabaseClient | null = null;
@@ -14,6 +15,8 @@ export function getSupabaseBrowserClient(): SupabaseClient {
         autoRefreshToken: false,
         detectSessionInUrl: false,
       },
+      // 👇 Muy importante: apuntar al esquema correcto
+      db: { schema: "liwa" },
     });
   }
 
@@ -25,6 +28,8 @@ export function getSupabaseBrowserClient(): SupabaseClient {
       autoRefreshToken: true,
       detectSessionInUrl: false,
     },
+    // 👇 Muy importante: apuntar al esquema correcto
+    db: { schema: "liwa" },
   });
   return browserClient;
 }

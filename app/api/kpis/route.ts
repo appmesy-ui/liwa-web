@@ -1,242 +1,308 @@
-// app/api/kpis/route.ts 
+// app/api/kpis/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-type KpiRow = {
-  line_code: string | null; // devolvemos lines.name
+/** Fila para la tabla de KPIs */
+type RowUI = {
+  line_code: string | null;
+  plant_id: string | null;
   planned_runtime_sec: number | null;
+  availability: number | null; // 0–1
+  performance: number | null;  // 0–1
+  quality: number | null;      // 0–1
+  oee: number | null;          // 0–1
+  trend_pp: number;            // delta (ventana actual - ventana anterior) en puntos porcentuales
+};
+
+type SeriesPointFlat = {
+  bucket_ts: string;
+  line_code: string | null;
+  oee: number | null; // 0–1
+};
+
+type OeeRow = {
+  line_id: string;
+  plant_id: string | null;
+  planned_time_s: number | null;
   availability: number | null;
   performance: number | null;
   quality: number | null;
   oee: number | null;
+  shift_instance_id: string;
 };
 
-type SeriesRow = { bucket_ts: string; line_code: string | null; oee: number | null };
-
-const clamp01 = (n: number) => (isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
-
-// pequeño helper para trocear arrays en lotes seguros para `.in()`
-function chunk<T>(arr: T[], size = 900) {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 export async function GET(req: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  if (!url || !serviceKey) {
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    if (!url || !serviceKey) {
+      return NextResponse.json(
+        { ok: false, error: "Faltan NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY" },
+        { status: 500 }
+      );
+    }
+
+    const admin = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { "X-Client-Info": "liwa-kpis" } },
+      db: { schema: "liwa" },
+    });
+
+    // ====== Parámetros ======
+    const { searchParams } = new URL(req.url);
+    const toISO = searchParams.get("to") ?? new Date().toISOString();
+    const fromISO =
+      searchParams.get("from") ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const step = (searchParams.get("step") ?? "all") as "all" | "kpis" | "series";
+    const lineFilter = searchParams.get("line"); // filtra por nombre/código de línea
+
+    // Duración y bucket (hora para <=3 días; día si no)
+    const fromMs = new Date(fromISO).getTime();
+    const toMs = new Date(toISO).getTime();
+    const windowMs = Math.max(0, toMs - fromMs);
+    const bucket: "hour" | "day" = windowMs <= 3 * 24 * 3600 * 1000 ? "hour" : "day";
+
+    // Ventana anterior (misma duración inmediatamente previa)
+    const prevToISO = new Date(fromMs).toISOString();
+    const prevFromISO = new Date(fromMs - windowMs).toISOString();
+
+    // ===== Helpers =====
+    const toNum = (v: any) => Number(v ?? 0);
+    const fmtBucket = (iso: string) => {
+      const d = new Date(iso);
+      if (bucket === "day") {
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString();
+      }
+      return new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours())
+      ).toISOString();
+    };
+
+    // Buscar shifts que se SOLAPAN con [from, to): starts_at < to  AND  ends_at > from
+    const findShiftIds = async (from: string, to: string) => {
+      const { data, error } = await admin
+        .from("v_shift_instances_resolved")
+        .select("shift_instance_id, starts_at, ends_at")
+        .lt("starts_at", to)
+        .gt("ends_at", from);
+      if (error) throw error;
+      const ids = (data ?? []).map((r: any) => r.shift_instance_id as string);
+      const timeByShift = new Map<string, { start: string; end: string }>();
+      for (const r of data ?? []) {
+        timeByShift.set((r as any).shift_instance_id, {
+          start: (r as any).starts_at,
+          end: (r as any).ends_at,
+        });
+      }
+      return { ids, timeByShift };
+    };
+
+    // Trae OEE por shift para una lista de shifts
+    const fetchOeeByShifts = async (shiftIds: string[]) => {
+      if (!shiftIds.length) return [] as OeeRow[];
+      const { data, error } = await admin
+        .from("v_oee_by_shift")
+        .select(
+          "line_id, plant_id, planned_time_s, availability, performance, quality, oee, shift_instance_id"
+        )
+        .in("shift_instance_id", shiftIds)
+        .limit(50000);
+      if (error) throw error;
+      return (data ?? []) as unknown as OeeRow[];
+    };
+
+    // Nombres de líneas
+    const fetchLineNames = async (lineIds: string[]) => {
+      if (!lineIds.length) return new Map<string, string | null>();
+      const { data, error } = await admin
+        .from("lines")
+        .select("id, name")
+        .in("id", Array.from(new Set(lineIds)));
+      if (error) throw error;
+      const map = new Map<string, string | null>();
+      for (const l of data ?? []) map.set((l as any).id, (l as any).name ?? null);
+      return map;
+    };
+
+    // Agrega KPIs ponderados por línea
+    const aggregateByLine = (rows: OeeRow[]) => {
+      type Acc = {
+        plant_id: string | null;
+        totalPlan: number;
+        sumA: number;
+        sumP: number;
+        sumQ: number;
+        sumO: number;
+      };
+      const byLine = new Map<string, Acc>();
+      for (const r of rows) {
+        const lid = r.line_id;
+        const w = Math.max(0, toNum(r.planned_time_s));
+        if (!w) continue; // evita dividir por 0 y “cero contaminante”
+        if (!byLine.has(lid)) {
+          byLine.set(lid, {
+            plant_id: r.plant_id ?? null,
+            totalPlan: 0,
+            sumA: 0,
+            sumP: 0,
+            sumQ: 0,
+            sumO: 0,
+          });
+        }
+        const acc = byLine.get(lid)!;
+        acc.totalPlan += w;
+        acc.sumA += toNum(r.availability) * w;
+        acc.sumP += toNum(r.performance) * w;
+        acc.sumQ += toNum(r.quality) * w;
+        acc.sumO += toNum(r.oee) * w;
+      }
+      return byLine;
+    };
+
+    // ====== Ventana actual ======
+    const { ids: nowShiftIds, timeByShift: nowTimes } = await findShiftIds(fromISO, toISO);
+    const nowRows = await fetchOeeByShifts(nowShiftIds);
+    const nowAgg = aggregateByLine(nowRows);
+
+    // Si no hay datos en la ventana actual, responder vacío (y evitar “ceros” aparentes)
+    if (nowAgg.size === 0) {
+      const pending = await countPending(admin, fromISO, toISO, lineFilter);
+      const payload: any = { ok: true, pending, rows: [], series: [] };
+      if (step === "kpis") delete payload.series;
+      if (step === "series") delete payload.rows;
+      return NextResponse.json(payload);
+    }
+
+    // ====== Ventana anterior ======
+    const { ids: prevShiftIds } = await findShiftIds(prevFromISO, prevToISO);
+    const prevRows = await fetchOeeByShifts(prevShiftIds);
+    const prevAgg = aggregateByLine(prevRows);
+
+    // ====== Nombres de líneas ======
+    const allLineIds = [
+      ...new Set([...nowRows.map(r => r.line_id), ...prevRows.map(r => r.line_id)]),
+    ];
+    const nameById = await fetchLineNames(allLineIds);
+
+    // ====== Series planas para sparkline (ventana actual) ======
+    // Bucketing por hora o día usando starts_at del shift
+    type BAcc = { w: number; sumO: number; t: string };
+    const byLineBucket = new Map<string, Map<string, BAcc>>();
+
+    for (const r of nowRows) {
+      const ts = nowTimes.get(r.shift_instance_id);
+      if (!ts) continue;
+      const key = fmtBucket(ts.start);
+      const lid = r.line_id;
+      const w = Math.max(1, (new Date(ts.end).getTime() - new Date(ts.start).getTime()) / 1000);
+      const o = toNum(r.oee);
+
+      if (!byLineBucket.has(lid)) byLineBucket.set(lid, new Map());
+      const inner = byLineBucket.get(lid)!;
+      if (!inner.has(key)) inner.set(key, { w: 0, sumO: 0, t: key });
+      const acc = inner.get(key)!;
+      acc.w += w;
+      acc.sumO += o * w;
+    }
+
+    const series: SeriesPointFlat[] = [];
+    for (const [lid, bucketMap] of byLineBucket.entries()) {
+      const line_code = nameById.get(lid) ?? null;
+      for (const b of Array.from(bucketMap.values()).sort((a, b) => a.t.localeCompare(b.t))) {
+        const oee = b.w ? b.sumO / b.w : 0;
+        series.push({ bucket_ts: b.t, line_code, oee });
+      }
+    }
+
+    // ====== Construir filas con tendencia (actual vs anterior) ======
+    let rows: RowUI[] = [];
+    for (const [lid, acc] of nowAgg.entries()) {
+      const name = nameById.get(lid) ?? null;
+      const w = Math.max(1, acc.totalPlan);
+      const curA = acc.sumA / w;
+      const curP = acc.sumP / w;
+      const curQ = acc.sumQ / w;
+      const curO = acc.sumO / w;
+
+      let trend_pp = 0;
+      const prev = prevAgg.get(lid);
+      if (prev) {
+        const pw = Math.max(1, prev.totalPlan);
+        const prevO = prev.sumO / pw;
+        trend_pp = (curO - prevO) * 100; // puntos porcentuales
+      } else {
+        // si no hay ventana anterior para esa línea, deja 0 (neutro)
+        trend_pp = 0;
+      }
+
+      rows.push({
+        line_code: name,
+        plant_id: acc.plant_id,
+        planned_runtime_sec: acc.totalPlan,
+        availability: curA,
+        performance: curP,
+        quality: curQ,
+        oee: curO,
+        trend_pp: +trend_pp.toFixed(1),
+      });
+    }
+
+    // Filtro por línea si se pidió (match exacto case-insensitive sobre nombre/código)
+    if (lineFilter) {
+      const needle = lineFilter.toUpperCase();
+      rows = rows.filter((x) => (x.line_code ?? "").toUpperCase() === needle);
+    }
+
+    // Orden por OEE desc
+    rows.sort((a, b) => (b.oee ?? 0) - (a.oee ?? 0));
+
+    // Paros sin clasificar
+    const pending = await countPending(admin, fromISO, toISO, lineFilter);
+
+    // ====== Respuesta ======
+    const payload: any = { ok: true, pending };
+    if (step === "all" || step === "kpis") payload.rows = rows;
+    if (step === "all" || step === "series") payload.series = series;
+
+    return NextResponse.json(payload);
+  } catch (err: any) {
+    console.error("API /kpis error:", err?.message || err);
     return NextResponse.json(
-      { ok: false, error: "Faltan variables NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY" },
+      { ok: false, error: String(err?.message || err) },
       { status: 500 }
     );
   }
-
-  const admin = createClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-    global: { headers: { "X-Client-Info": "liwa-kpis" } },
-    db: { schema: "liwa" },
-  });
-
-  const { searchParams } = new URL(req.url);
-  const toISO = searchParams.get("to") ?? new Date().toISOString();
-  const fromParam = searchParams.get("from"); // rango solicitado por el dashboard
-  const lineFilter = searchParams.get("line"); // compararemos con lines.name
-  const step = (searchParams.get("step") ?? "all") as "all" | "kpis" | "series";
-
-  // Columnas reales de liwa.production
-  const prodSel = [
-    "id",
-    "line_id",
-    "machine_id",
-    "ts_start",
-    "ts_end",
-    "planned_time_s",
-    "run_time_s",
-    "good_units",
-    "scrap_units",
-    "ideal_cycle_s",
-  ].join(", ");
-
-  async function fetchProd(fromISO: string | null) {
-    let q = admin.from("production").select(prodSel).lte("ts_start", toISO).order("ts_start", { ascending: true });
-    if (fromISO) q = q.gte("ts_start", fromISO);
-    const { data, error } = await q;
-    if (error) throw new Error(`Error leyendo production: ${error.message}`);
-    return data ?? [];
-  }
-
-  // Rango escalonado por si no hay datos recientes (solo para KPIs)
-  const ranges: (string | null)[] = [];
-  if (fromParam) ranges.push(fromParam);
-  ranges.push(
-    new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
-    new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
-  );
-
-  let prod: any[] = [];
-  let fromUsed: string | null = null;
-  for (const r of ranges) {
-    const tryData = await fetchProd(r);
-    if (tryData.length > 0) {
-      prod = tryData;
-      fromUsed = r;
-      break;
-    }
-  }
-  if (!prod.length && fromParam) {
-    prod = await fetchProd(fromParam);
-    fromUsed = fromParam;
-  }
-
-  // ===== Si no hay producción, aún así devolvemos pending para el rango SOLICITADO =====
-  if (!prod.length) {
-    const pendingFrom = fromParam ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const pendingTo = toISO;
-
-    let qPending = admin
-      .from("v_pending_events_ui")
-      .select("id", { count: "exact", head: true })
-      .lt("started_at", pendingTo)
-      .or(`ended_at.is.null,ended_at.gte.${pendingFrom}`);
-
-    if (lineFilter) {
-      qPending = qPending.ilike("line_name", lineFilter);
-    }
-
-    const { count: pendingCount = 0, error: pendingErr }: any = await qPending;
-    if (pendingErr && pendingErr.code !== "PGRST116") {
-      return NextResponse.json({ ok: false, error: pendingErr.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ ok: true, rows: [], series: [], pending: pendingCount });
-  }
-
-  // Mapeo lines.id -> lines.name
-  const lineIds = Array.from(new Set(prod.map((r) => r.line_id).filter(Boolean)));
-  const lineMap = new Map<string, { name: string | null }>();
-  if (lineIds.length) {
-    const { data: lines, error } = await admin.from("lines").select("id, name").in("id", lineIds);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    for (const l of lines ?? []) lineMap.set(l.id as string, { name: (l as any).name ?? null });
-  }
-  const matchLineName = (row: any): string | null => {
-    const lid: string | null = row.line_id ?? null;
-    if (!lid) return null;
-    return lineMap.get(lid)?.name ?? null;
-  };
-
-  // === Unplanned por production.id desde la vista v_unplanned_by_slot ===
-  const prodIds = prod.map((r) => r.id as string);
-  const unplannedMap = new Map<string, number>();
-  for (const batch of chunk(prodIds, 900)) {
-    const { data, error } = await admin
-      .from("v_unplanned_by_slot")
-      .select("production_id, unplanned_overlap_s")
-      .in("production_id", batch);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    for (const row of data ?? []) {
-      unplannedMap.set(row.production_id as string, Number(row.unplanned_overlap_s ?? 0));
-    }
-  }
-
-  // Acumuladores por línea
-  const byLine = new Map<
-    string,
-    { planned: number; unplanned_from_events: number; produced: number; scrap: number; ideal_ms_sum: number; ideal_n: number }
-  >();
-
-  const series: SeriesRow[] = [];
-
-  for (const r of prod) {
-    const planned_time_s = Number(r.planned_time_s ?? 0);
-    const good_units = Number(r.good_units ?? 0);
-    const scrap_units = Number(r.scrap_units ?? 0);
-    const ideal_cycle_s = Number(r.ideal_cycle_s ?? 0);
-
-    const unplanned_s = Number(unplannedMap.get(r.id) ?? 0);
-    const op_s = Math.max(planned_time_s - unplanned_s, 0);
-
-    const ideal_ms = ideal_cycle_s > 0 ? ideal_cycle_s * 1000 : 0;
-
-    const availability = planned_time_s > 0 ? clamp01(op_s / planned_time_s) : 0;
-    const perf = op_s > 0 ? clamp01(((good_units * ideal_ms) / 1000) / op_s) : 0;
-    const denomUnits = good_units + scrap_units;
-    const quality = denomUnits > 0 ? clamp01(good_units / denomUnits) : 0;
-    const oee = clamp01(availability * perf * quality);
-
-    const line_name = matchLineName(r);
-    if (lineFilter && line_name !== lineFilter) continue;
-    const key = (line_name ?? "__UNKNOWN__").toUpperCase();
-
-    if (!byLine.has(key)) {
-      byLine.set(key, { planned: 0, unplanned_from_events: 0, produced: 0, scrap: 0, ideal_ms_sum: 0, ideal_n: 0 });
-    }
-    const acc = byLine.get(key)!;
-    acc.planned += planned_time_s;
-    acc.unplanned_from_events += unplanned_s;
-    acc.produced += good_units;
-    acc.scrap += scrap_units;
-    if (ideal_ms > 0) {
-      acc.ideal_ms_sum += ideal_ms;
-      acc.ideal_n += 1;
-    }
-
-    if (step !== "kpis") {
-      const ts = (r as any)?.ts_start ?? null;
-      if (ts) series.push({ bucket_ts: ts, line_code: line_name, oee });
-    }
-  }
-
-  // construir filas KPI
-  const rows: KpiRow[] = [];
-  for (const [line_name, acc] of byLine.entries()) {
-    const planned = acc.planned;
-    const unplanned = acc.unplanned_from_events;
-    const op = Math.max(planned - unplanned, 0);
-    const avgIdealMs = acc.ideal_n > 0 ? acc.ideal_ms_sum / acc.ideal_n : 0;
-
-    const availability = planned > 0 ? clamp01(op / planned) : 0;
-    const performance = op > 0 ? clamp01(((acc.produced * avgIdealMs) / 1000) / op) : 0;
-    const denomUnits = acc.produced + acc.scrap;
-    const quality = denomUnits > 0 ? clamp01(acc.produced / denomUnits) : 0;
-    const oee = clamp01(availability * performance * quality);
-
-    rows.push({
-      line_code: line_name === "__UNKNOWN__" ? null : line_name,
-      planned_runtime_sec: planned,
-      availability,
-      performance,
-      quality,
-      oee,
-    });
-  }
-  rows.sort((a, b) => (b.oee ?? 0) - (a.oee ?? 0));
-
-  // === Contador de pendientes: solape con [from, to) ===
-  const pendingFrom = fromParam ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  const pendingTo = toISO;
-
-  let qPending = admin
-    .from("v_pending_events_ui")
-    .select("id", { count: "exact", head: true })
-    .lt("started_at", pendingTo)
-    .or(`ended_at.is.null,ended_at.gte.${pendingFrom}`);
-
-  if (lineFilter) {
-    qPending = qPending.ilike("line_name", lineFilter);
-  }
-
-  const { count: pendingCount = 0, error: pendingErr }: any = await qPending;
-  if (pendingErr && pendingErr.code !== "PGRST116") {
-    return NextResponse.json({ ok: false, error: pendingErr.message }, { status: 500 });
-  }
-
-  const payload: any = { ok: true, pending: pendingCount };
-  if (step === "all" || step === "kpis") payload.rows = rows;
-  if (step === "all" || step === "series") payload.series = series;
-
-  return NextResponse.json(payload);
 }
 
+/** Conteo de paros sin clasificar en el rango [fromISO, toISO) */
+async function countPending(
+  admin: ReturnType<typeof createClient>,
+  fromISO: string,
+  toISO: string,
+  lineFilter: string | null
+): Promise<number> {
+  const base = admin
+    .from("v_pending_events_ui")
+    .select("id", { count: "exact" })
+    .eq("is_pending", true)
+    .lt("started_at", toISO)
+    .or(`ended_at.is.null,ended_at.gte.${fromISO}`);
+
+  if (!lineFilter) {
+    const { count, error } = await base.range(0, 0);
+    if (error && (error as any).code !== "PGRST116") throw error;
+    return count ?? 0;
+  }
+
+  const pat = `%${lineFilter}%`;
+  const byName = base.clone().ilike("line_name", pat);
+  const { count: c1, error: e1 } = await byName.range(0, 0);
+  if (e1 && (e1 as any).code !== "PGRST116") throw e1;
+  if ((c1 ?? 0) > 0) return c1 ?? 0;
+
+  const byCode = base.clone().ilike("line_code", pat);
+  const { count: c2, error: e2 } = await byCode.range(0, 0);
+  if (e2 && (e2 as any).code !== "PGRST116") throw e2;
+
+  return c2 ?? 0;
+}

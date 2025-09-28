@@ -1,6 +1,4 @@
 // app/api/me/route.ts
-// GET /api/me  → usuario, organizaciones y rol
-
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
@@ -9,31 +7,45 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(_req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies });
+  const supabase = createRouteHandlerClient({ cookies, options: { db: { schema: "liwa" } } });
 
   const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) {
+  if (!sessionData?.session) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-
   const user = sessionData.session.user;
 
-  const { data, error } = await supabase
+  const { data: memberships, error: mErr } = await supabase
+    .schema("liwa")
     .from("org_members")
-    .select("role, orgs:org_id ( id, name )")
+    .select("org_id, role")
     .eq("user_id", user.id);
 
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  if (mErr) {
+    return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
   }
 
-  return NextResponse.json({
-    ok: true,
-    user: { id: user.id, email: user.email },
-    orgs: (data || []).map((r: any) => ({
-      id: r.orgs?.id,
-      name: r.orgs?.name,
-      role: r.role,
-    })),
-  });
+  let orgs: Array<{ id: string; name: string | null; role: string | null }> = [];
+  if ((memberships?.length ?? 0) > 0) {
+    const orgIds = memberships!.map((m) => m.org_id).filter(Boolean) as string[];
+
+    const { data: orgRows, error: oErr } = await supabase
+      .schema("liwa")
+      .from("orgs")
+      .select("id, name")
+      .in("id", orgIds);
+
+    if (oErr) {
+      return NextResponse.json({ ok: false, error: oErr.message }, { status: 400 });
+    }
+
+    const nameById = new Map((orgRows ?? []).map((o) => [o.id, o.name]));
+    orgs = memberships!.map((m: any) => ({
+      id: m.org_id as string,
+      name: nameById.get(m.org_id as string) ?? null,
+      role: m.role ?? null,
+    }));
+  }
+
+  return NextResponse.json({ ok: true, user: { id: user.id, email: user.email }, orgs });
 }

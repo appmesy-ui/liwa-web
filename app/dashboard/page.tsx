@@ -1,8 +1,8 @@
-// app/dashboard/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
@@ -16,9 +16,11 @@ type KpiRow = {
   performance: number | null;
   quality: number | null;
   oee: number | null;
+  trend_pp?: number | null;
+  spark?: number[] | null;
 };
 type KpisResponse = {
-  ok: boolean;
+  ok?: boolean;
   rows?: KpiRow[];
   series?: { bucket_ts: string; line_code: string | null; oee: number | null }[];
   pending?: number;
@@ -61,45 +63,19 @@ function SignOutButton() {
 }
 
 /* =========================
-   Sparkline (mini gráfico)
+   Sparkline
 ========================= */
-function Sparkline({
-  values,
-  width = 120,
-  height = 24,
-}: {
-  values: number[];
-  width?: number;
-  height?: number;
-}) {
-  const v = (values && values.length ? values : [0]).map((x) =>
-    Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0))
-  );
-  const n = v.length;
-  const pad = 1.5;
-  const w = width - pad * 2;
-  const h = height - pad * 2;
-
-  const max = Math.max(...v);
-  const min = Math.min(...v);
-  const range = Math.max(0.0001, max - min);
-  const stepX = n > 1 ? w / (n - 1) : 0;
-
-  const pts = v.map((val, i) => {
-    const x = pad + i * stepX;
-    const y = pad + (1 - (range ? (val - min) / range : 0)) * h;
-    return [x, y] as const;
-  });
-
-  const d = pts
-    .map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`))
-    .join(" ");
-
+function Sparkline({ values, width = 120, height = 24 }: { values: number[]; width?: number; height?: number }) {
+  if (!values || values.length === 0) return <svg width={width} height={height} aria-label="sparkline" />;
+  const v = values.map((x) => clamp01(Number(x) > 1 ? Number(x) / 100 : Number(x)));
+  const n = v.length, pad = 1.5, w = width - pad * 2, h = height - pad * 2;
+  const max = Math.max(...v), min = Math.min(...v), range = Math.max(0.0001, max - min), stepX = n > 1 ? w / (n - 1) : 0;
+  const pts = v.map((val, i) => [pad + i * stepX, pad + (1 - (range ? (val - min) / range : 0)) * h] as const);
+  const d = pts.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(" ");
   const last = v[n - 1] ?? 0;
   const color = last < 0.75 ? "#f43f5e" : last < 0.85 ? "#f59e0b" : "#10b981";
-
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-label="sparkline">
       <defs>
         <linearGradient id="sparkGrad" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.95" />
@@ -107,22 +83,8 @@ function Sparkline({
           <stop offset="100%" stopColor="#eab308" stopOpacity="0.95" />
         </linearGradient>
       </defs>
-      <path
-        d={d}
-        fill="none"
-        stroke="url(#sparkGrad)"
-        strokeWidth={2.2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      {pts.length > 0 && (
-        <circle
-          cx={pts[pts.length - 1][0]}
-          cy={pts[pts.length - 1][1]}
-          r="2.6"
-          fill={color}
-        />
-      )}
+      <path d={d} fill="none" stroke="url(#sparkGrad)" strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="2.6" fill={color} />
     </svg>
   );
 }
@@ -130,46 +92,20 @@ function Sparkline({
 /* =========================
    Tarjeta móvil por línea
 ========================= */
-function LineCardMobile({
-  code,
-  a,
-  p,
-  q,
-  oee,
-  serie,
-}: {
-  code: string;
-  a: number;
-  p: number;
-  q: number;
-  oee: number;
-  serie: number[];
-}) {
+function LineCardMobile({ code, a, p, q, oee, serie }: { code: string; a: number; p: number; q: number; oee: number; serie: number[]; }) {
   const last = serie?.length ? serie[serie.length - 1] : oee;
-  const color =
-    last < 0.75
-      ? "bg-rose-400/20 text-rose-200"
-      : last < 0.85
-      ? "bg-amber-400/20 text-amber-200"
-      : "bg-emerald-400/20 text-emerald-200";
-
+  const color = last < 0.75 ? "bg-rose-400/20 text-rose-200" : last < 0.85 ? "bg-amber-400/20 text-amber-200" : "bg-emerald-400/20 text-emerald-200";
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="font-semibold">{code}</span>
-          <span className={`text-[11px] px-2 py-0.5 rounded-full ${color}`}>
-            {pct(oee)}
-          </span>
+          <span className={`text-[11px] px-2 py-0.5 rounded-full ${color}`}>{pct(oee)}</span>
         </div>
-        <div className="text-xs text-slate-400">
-          A {pct(a)} · P {pct(p)} · Q {pct(q)}
-        </div>
+        <div className="text-xs text-slate-400">A {pct(a)} · P {pct(p)} · Q {pct(q)}</div>
       </div>
       <div className="flex items-center justify-between gap-3">
-        <div className="grow">
-          <Sparkline values={serie} width={180} height={36} />
-        </div>
+        <div className="grow"><Sparkline values={serie} width={180} height={36} /></div>
         <div className="shrink-0 text-right">
           <div className="text-[11px] text-slate-400">OEE</div>
           <div className="text-lg font-semibold">{pct(oee)}</div>
@@ -182,29 +118,13 @@ function LineCardMobile({
 /* =========================
    KPI Card
 ========================= */
-function KpiCard({
-  title,
-  valueNum,
-  value,
-  subtitle,
-}: {
-  title: string;
-  valueNum?: number | null;
-  value: string;
-  subtitle?: string;
-}) {
+function KpiCard({ title, valueNum, value, subtitle }: { title: string; valueNum?: number | null; value: string; subtitle?: string; }) {
   const v = clamp01(valueNum ?? 0);
   return (
     <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-5 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] backdrop-blur">
       <div className="flex items-center justify-between">
         <div className="text-slate-200/90 text-sm">{title}</div>
-        {subtitle ? (
-          <div className="text-[11px] px-2 py-1 rounded-lg border border-white/10 text-slate-300/80">
-            {subtitle}
-          </div>
-        ) : (
-          <span />
-        )}
+        {subtitle ? <div className="text-[11px] px-2 py-1 rounded-lg border border-white/10 text-slate-300/80">{subtitle}</div> : <span />}
       </div>
       <div className="mt-2 text-4xl font-semibold tracking-tight">{value}</div>
       <div className="mt-4 h-2 w-full rounded-full bg-white/10 overflow-hidden">
@@ -212,8 +132,7 @@ function KpiCard({
           className="h-full rounded-full transition-[width] duration-500"
           style={{
             width: `${v * 100}%`,
-            background:
-              "linear-gradient(90deg, rgba(59,130,246,.9) 0%, rgba(34,197,94,.95) 60%, rgba(234,179,8,.95) 100%)",
+            background: "linear-gradient(90deg, rgba(59,130,246,.9) 0%, rgba(34,197,94,.95) 60%, rgba(234,179,8,.95) 100%)",
           }}
         />
       </div>
@@ -251,7 +170,6 @@ export default function DashboardPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
-  // cuando llegan filas por primera vez, selecciona todas
   useEffect(() => {
     if (lineCodes.length && selectedLines.size === 0) {
       setSelectedLines(new Set(lineCodes));
@@ -266,20 +184,16 @@ export default function DashboardPage() {
       return next;
     });
   };
-
   const selectAll = () => setSelectedLines(new Set(lineCodes));
   const selectNone = () => setSelectedLines(new Set());
 
   const rowsFiltered = useMemo(() => {
     if (!rows.length) return [];
     if (!selectedLines.size) return [];
-    return rows.filter((r) => {
-      const c = (r.line_code || "").toUpperCase();
-      return selectedLines.has(c);
-    });
+    return rows.filter((r) => selectedLines.has((r.line_code || "").toUpperCase()));
   }, [rows, selectedLines]);
 
-  // establece rango inicial y recalcula from/to al cambiar el rango
+  // rango
   useEffect(() => {
     const now = new Date();
     const from = new Date(now);
@@ -298,71 +212,73 @@ export default function DashboardPage() {
       try {
         const { data } = await supabase.auth.getSession();
         setUserEmail(data.session?.user?.email ?? null);
-      } catch {
-        setUserEmail(null);
-      }
+      } catch { setUserEmail(null); }
       try {
         const meRes = await fetch("/api/me");
         const me = await meRes.json();
         setOrgName(me?.ok && me.orgs?.[0]?.name ? me.orgs[0].name : null);
-      } catch {
-        setOrgName(null);
-      }
+      } catch { setOrgName(null); }
     })();
   }, [hydrated, supabase]);
 
   // ========================
-  //  Fetch único de KPIs + pending + series
+  //  Fetch KPIs robusto
   // ========================
   useEffect(() => {
     if (!hydrated || !fromISO || !toISO) return;
     let mounted = true;
 
-    const safeJson = async (res: Response) => {
-      try {
-        if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          throw new Error(txt || `HTTP ${res.status}`);
-        }
-        const ct = res.headers.get("content-type") || "";
-        if (!ct.includes("application/json")) return null;
-        return await res.json();
-      } catch {
-        return null;
-      }
+    const parseJsonLoosely = async (res: Response) => {
+      const txt = await res.text();
+      try { return JSON.parse(txt); } catch { return null; }
     };
 
-    (async () => {
+    const load = async () => {
       try {
         setLoading(true);
         setErr(null);
 
+        // 1) intento con rango
         const q = new URLSearchParams({ from: fromISO, to: toISO, step: "all" }).toString();
-        const res = await fetch(`/api/kpis?${q}`);
-        const json = (await safeJson(res)) as KpisResponse | null;
+        let res = await fetch(`/api/kpis?${q}`);
+        let json = (await parseJsonLoosely(res)) as KpisResponse | null;
+
+        // si viene vacío, 2) intento sin rango
+        if (!json || (!Array.isArray(json.rows) || json.rows.length === 0)) {
+          const res2 = await fetch(`/api/kpis`);
+          const json2 = (await parseJsonLoosely(res2)) as KpisResponse | null;
+          if (json2) json = json2;
+        }
 
         if (!mounted) return;
 
-        // KPIs
-        const kRows = json?.ok ? (json.rows || []) : [];
+        const kRows: KpiRow[] = Array.isArray(json?.rows) ? (json!.rows as KpiRow[]) : [];
         setRows(kRows.slice().sort((a, b) => (a.line_code || "").localeCompare(b.line_code || "")));
-        if (!json?.ok && json?.error) setErr(json.error);
 
-        // Pending
-        setPendingCount(Number(json?.pending ?? 0));
+        if (typeof json?.pending === "number") setPendingCount(Number(json?.pending ?? 0));
+        else setPendingCount(0);
 
-        // Series
+        // series (usa row.spark si viene)
         const by: Record<string, number[]> = {};
-        if (json?.ok && json.series?.length) {
+        for (const r of kRows) {
+          const code = (r.line_code || "—").toUpperCase();
+          const arr = Array.isArray(r.spark) ? r.spark : [];
+          if (arr.length) {
+            by[code] = arr.map((x) => clamp01((Number(x) > 1 ? Number(x) / 100 : Number(x)) || 0));
+          }
+        }
+        if (json?.series?.length) {
           const arr = json.series.slice().sort(
             (a, b) => new Date(a.bucket_ts).getTime() - new Date(b.bucket_ts).getTime()
           );
           for (const r of arr) {
             const code = (r.line_code || "—").toUpperCase();
+            const n = clamp01(Number(r.oee));
             if (!by[code]) by[code] = [];
-            by[code].push(clamp01(r.oee));
+            by[code].push(n);
           }
         }
+
         setSeriesByLine(by);
       } catch (e: any) {
         if (!mounted) return;
@@ -373,37 +289,43 @@ export default function DashboardPage() {
       } finally {
         if (mounted) setLoading(false);
       }
-    })();
-
-    return () => {
-      mounted = false;
     };
+
+    load();
+    return () => { mounted = false; };
   }, [hydrated, fromISO, toISO]);
 
-  // agregados globales ponderados por tiempo planificado (con filtro)
+  // usar todas las líneas si aún no hay selección
+  const rowsForAgg = useMemo(
+    () => (selectedLines.size ? rowsFiltered : rows),
+    [selectedLines.size, rowsFiltered, rows]
+  );
+
   const agg = useMemo(() => {
-    const rs = rowsFiltered;
+    const rs = rowsForAgg;
     if (!rs.length) return null;
     const totPlan = rs.reduce((acc, r) => acc + (r.planned_runtime_sec ?? 0), 0);
     const w = (r: KpiRow) => (r.planned_runtime_sec ?? 0) / (totPlan || 1);
     const availability = rs.reduce((a, r) => a + clamp01(r.availability) * w(r), 0);
-    const performance = rs.reduce((a, r) => a + clamp01(r.performance) * w(r), 0);
-    const quality = rs.reduce((a, r) => a + clamp01(r.quality) * w(r), 0);
+    const performance  = rs.reduce((a, r) => a + clamp01(r.performance)  * w(r), 0);
+    const quality      = rs.reduce((a, r) => a + clamp01(r.quality)      * w(r), 0);
     const oee = availability * performance * quality;
     return { availability, performance, quality, oee };
-  }, [rowsFiltered]);
+  }, [rowsForAgg]);
 
-  // estilos botones rango
   const rangeBtn = (r: "24h" | "7d" | "30d") =>
     `px-3 py-1 rounded-lg text-xs ${
-      range === r
-        ? "bg-emerald-500 text-emerald-950 font-medium shadow-[0_10px_25px_-10px_rgba(16,185,129,.7)]"
-        : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+      range === r ? "bg-emerald-500 text-emerald-950 font-medium shadow-[0_10px_25px_-10px_rgba(16,185,129,.7)]"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
     }`;
+
+  const rangeQS = useMemo(
+    () => new URLSearchParams({ from: fromISO, to: toISO }).toString(),
+    [fromISO, toISO]
+  );
 
   return (
     <main className="min-h-screen w-full text-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* ===== Header ===== */}
       <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur px-5">
         <div className="max-w-7xl mx-auto py-4 flex flex-wrap gap-3 items-center justify-between">
           <div className="flex items-center gap-4">
@@ -429,21 +351,32 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ===== Contenido ===== */}
       <section className="max-w-7xl mx-auto px-5 py-8">
-        {/* KPIs globales (con filtro) — ahora 4 tarjetas incluyendo Q */}
+        {/* KPIs globales */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-          <KpiCard title="OEE" valueNum={agg?.oee} value={!hydrated || loading ? "…" : pct(agg?.oee)} subtitle="A × P × Q" />
-          <KpiCard title="Disponibilidad" valueNum={agg?.availability} value={!hydrated || loading ? "…" : pct(agg?.availability)} />
-          <KpiCard title="Rendimiento" valueNum={agg?.performance} value={!hydrated || loading ? "…" : pct(agg?.performance)} />
-          <KpiCard title="Calidad" valueNum={agg?.quality} value={!hydrated || loading ? "…" : pct(agg?.quality)} />
+          <div className="relative group">
+            <KpiCard title="OEE" valueNum={agg?.oee} value={!hydrated || loading ? "…" : pct(agg?.oee)} subtitle="A × P × Q" />
+            <Link href={`/dashboard/oee?${rangeQS}`} aria-label="Ver detalle de OEE" className="absolute inset-0 rounded-2xl" />
+            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
+          </div>
+          <div className="relative group">
+            <KpiCard title="Disponibilidad" valueNum={agg?.availability} value={!hydrated || loading ? "…" : pct(agg?.availability)} />
+            <Link href={`/dashboard/availability?${rangeQS}`} aria-label="Ver detalle de Disponibilidad" className="absolute inset-0 rounded-2xl" />
+            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
+          </div>
+          <div className="relative group">
+            <KpiCard title="Rendimiento" valueNum={agg?.performance} value={!hydrated || loading ? "…" : pct(agg?.performance)} />
+            <Link href={`/dashboard/performance?${rangeQS}`} aria-label="Ver detalle de Rendimiento" className="absolute inset-0 rounded-2xl" />
+            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
+          </div>
+          <div className="relative group">
+            <KpiCard title="Calidad" valueNum={agg?.quality} value={!hydrated || loading ? "…" : pct(agg?.quality)} />
+            <Link href={`/dashboard/quality?${rangeQS}`} aria-label="Ver detalle de Calidad" className="absolute inset-0 rounded-2xl" />
+            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
+          </div>
         </div>
 
-        {err && (
-          <div className="mb-6 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-rose-200">
-            {err}
-          </div>
-        )}
+        {err && <div className="mb-6 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-rose-200">{err}</div>}
 
         {/* Filtro por línea */}
         <div className="mb-4 flex items-center gap-2 flex-wrap">
@@ -466,30 +399,19 @@ export default function DashboardPage() {
             );
           })}
           <span className="mx-1 h-5 w-px bg-white/10" />
-          <button
-            onClick={selectAll}
-            className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700"
-          >
-            Todos
-          </button>
-          <button
-            onClick={selectNone}
-            className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700"
-          >
-            Ninguno
-          </button>
+          <button onClick={selectAll}  className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700">Todos</button>
+          <button onClick={selectNone} className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700">Ninguno</button>
         </div>
 
-        {/* KPIs por línea (responsive) */}
+        {/* KPIs por línea */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 mb-8 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold tracking-tight">KPIs por línea</h2>
             <div className="text-sm text-slate-400">
-              {loading ? "Cargando…" : `${rowsFiltered.length} línea${rowsFiltered.length === 1 ? "" : "s"}`}
+              {loading ? "Cargando…" : `${(selectedLines.size ? rowsFiltered.length : rows.length)} línea${(selectedLines.size ? rowsFiltered.length : rows.length) === 1 ? "" : "s"}`}
             </div>
           </div>
 
-          {/* Vista DESKTOP: tabla */}
           <div className="overflow-x-auto hidden md:block">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-950/70">
@@ -499,34 +421,21 @@ export default function DashboardPage() {
                   <th className="text-right py-2 px-4 w-28">P</th>
                   <th className="text-right py-2 px-4 w-28">Q</th>
                   <th className="text-right py-2 px-4 w-28">OEE</th>
-                  <th className="text-right py-2 pl-4 w-[170px]">Tendencia</th>
+                  <th className="text-right py-2 pl-4 w-[180px]">Tendencia</th>
                 </tr>
               </thead>
               <tbody>
-                {!rowsFiltered.length && (
-                  <tr>
-                    <td className="py-4 text-slate-400" colSpan={6}>
-                      {!hydrated || loading
-                        ? "Cargando…"
-                        : "Sin datos (ajusta el filtro de líneas)"}
-                    </td>
-                  </tr>
-                )}
-                {rowsFiltered.map((r) => {
+                {(selectedLines.size ? rowsFiltered : rows).map((r) => {
                   const code = (r.line_code || "—").toUpperCase();
-                  const a = clamp01(r.availability),
-                    p = clamp01(r.performance),
-                    q = clamp01(r.quality),
-                    oee = clamp01(r.oee);
+                  const a = clamp01(r.availability), p = clamp01(r.performance), q = clamp01(r.quality), oee = clamp01(r.oee);
                   const serie = seriesByLine[code] || [];
-                  const last = serie?.length ? serie[serie.length - 1] : oee;
-                  const delta = Math.abs(last - oee);
-
+                  let trendPP: number | null = null;
+                  if (serie.length >= 2) trendPP = (serie[serie.length - 1] - serie[0]) * 100;
+                  const arrow = trendPP == null ? "—" : trendPP > 0 ? "▲" : trendPP < 0 ? "▼" : "—";
+                  const color = trendPP == null ? "text-slate-400" : trendPP > 0 ? "text-emerald-400" : trendPP < 0 ? "text-rose-400" : "text-slate-400";
+                  const ppText = trendPP == null ? "—" : `${Math.abs(trendPP).toFixed(1)} pts`;
                   return (
-                    <tr
-                      key={code}
-                      className="border-t border-white/10 hover:bg-white/[0.06] transition-colors"
-                    >
+                    <tr key={code} className="border-t border-white/10 hover:bg-white/[0.06] transition-colors">
                       <td className="py-3 pr-4 font-medium">{code}</td>
                       <td className="py-3 px-4 text-right">{pct(a)}</td>
                       <td className="py-3 px-4 text-right">{pct(p)}</td>
@@ -535,19 +444,7 @@ export default function DashboardPage() {
                       <td className="py-3 pl-4">
                         <div className="flex items-center justify-end gap-2">
                           <Sparkline values={serie} />
-                          <span
-                            className={`inline-flex items-center gap-1 text-xs ${
-                              last > oee
-                                ? "text-emerald-400"
-                                : last < oee
-                                ? "text-rose-400"
-                                : "text-slate-400"
-                            }`}
-                            title="Variación vs punto anterior"
-                          >
-                            {last > oee ? "▲" : last < oee ? "▼" : "—"}{" "}
-                            {delta > 0 ? `${(delta * 100).toFixed(1)} pts` : "—"}
-                          </span>
+                          <span className={`inline-flex items-center gap-1 text-xs ${color}`}>{arrow} {ppText}</span>
                         </div>
                       </td>
                     </tr>
@@ -557,34 +454,16 @@ export default function DashboardPage() {
             </table>
           </div>
 
-          {/* Vista MÓVIL: tarjetas */}
           <div className="md:hidden">
-            {!rowsFiltered.length ? (
-              <div className="py-3 text-slate-400">
-                {!hydrated || loading
-                  ? "Cargando…"
-                  : "Sin datos (ajusta el filtro de líneas)"}
-              </div>
+            {!(selectedLines.size ? rowsFiltered.length : rows.length) ? (
+              <div className="py-3 text-slate-400">{!hydrated || loading ? "Cargando…" : "Sin datos"}</div>
             ) : (
               <div className="flex flex-col gap-3">
-                {rowsFiltered.map((r) => {
+                {(selectedLines.size ? rowsFiltered : rows).map((r) => {
                   const code = (r.line_code || "—").toUpperCase();
-                  const a = clamp01(r.availability),
-                    p = clamp01(r.performance),
-                    q = clamp01(r.quality),
-                    oee = clamp01(r.oee);
+                  const a = clamp01(r.availability), p = clamp01(r.performance), q = clamp01(r.quality), oee = clamp01(r.oee);
                   const serie = seriesByLine[code] || [];
-                  return (
-                    <LineCardMobile
-                      key={code}
-                      code={code}
-                      a={a}
-                      p={p}
-                      q={q}
-                      oee={oee}
-                      serie={serie}
-                    />
-                  );
+                  return <LineCardMobile key={code} code={code} a={a} p={p} q={q} oee={oee} serie={serie} />;
                 })}
               </div>
             )}
@@ -595,14 +474,9 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
             <div className="text-sm text-slate-300/80">Paros sin clasificar</div>
-            <div className="text-3xl font-semibold mt-1 tracking-tight">
-              {!hydrated || loading ? "…" : pendingCount}
-            </div>
+            <div className="text-3xl font-semibold mt-1 tracking-tight">{!hydrated || loading ? "…" : pendingCount}</div>
           </div>
-          <a
-            href="/pending"
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-5 py-3 transition shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]"
-          >
+          <a href="/pending" className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-5 py-3 transition shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]">
             Ver pendientes <span className="text-sm opacity-80">→</span>
           </a>
         </div>
