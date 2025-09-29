@@ -1,22 +1,49 @@
+// components/AvailabilityParetoLauncher.tsx
 "use client";
 
 import { useState, ReactNode } from "react";
 import Modal from "./Modal";
 import ParetoChart from "./ParetoChart";
 
+/* ==== Tipos locales para props ==== */
+type ParetoMetric = "minutes" | "count";
+type Scope = "line" | "total";
+type LineField = "line_id" | "line_code";
+
 type Props = {
+  /** Rango temporal */
   from?: string;
   to?: string;
-  line?: string;                 // opcional: valor inicial
-  line_field?: "line_id" | "line_code";
-  children: ReactNode;           // tu card de Availability
-};
+
+  /** Alcance del pareto (a nivel total o filtrado por línea) */
+  scope?: Scope;
+
+  /** Valor de línea inicial (id o código, según line_field) */
+  line?: string;
+
+  /** Campo que se usa para la línea */
+  line_field?: LineField;
+
+  /** Config por defecto del pareto */
+  defaultMetric?: ParetoMetric;       // "minutes" | "count"
+  defaultTop?: number;                // top N
+  only_classified?: boolean;          // solo paros clasificados
+  include_planned?: boolean;          // incluir planificados
+
+  /** Card hijo (Availability) que dispara el modal */
+  children: ReactNode;
+} & Record<string, unknown>; // tolera props extra inofensivas
 
 export default function AvailabilityParetoLauncher({
   from,
   to,
+  scope,
   line,
   line_field = "line_id",
+  defaultMetric = "minutes",
+  defaultTop = 10,
+  only_classified = true,
+  include_planned = true,
   children,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -73,13 +100,13 @@ export default function AvailabilityParetoLauncher({
         <ParetoChart
           from={from ?? "2025-08-30T00:00:00.000Z"}
           to={to ?? "2025-09-29T00:00:00.000Z"}
-          scope={line ? "line" : "total"}
+          scope={scope ?? (line ? "line" : "total")}
           line={line}
           line_field={line_field}
-          defaultMetric="minutes"
-          defaultTop={10}
-          only_classified={true}
-          include_planned={true}
+          defaultMetric={defaultMetric}
+          defaultTop={defaultTop}
+          only_classified={only_classified}
+          include_planned={include_planned}
         />
       </Modal>
     </>
