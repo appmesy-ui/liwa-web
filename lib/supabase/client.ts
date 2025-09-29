@@ -1,9 +1,9 @@
 // lib/supabase/client.ts
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-let browserClient: SupabaseClient | null = null;
+let browserClient: SupabaseClient<any, any, any> | null = null;
 
-export function getSupabaseBrowserClient(): SupabaseClient {
+export function getSupabaseBrowserClient(): SupabaseClient<any, any, any> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
@@ -15,9 +15,8 @@ export function getSupabaseBrowserClient(): SupabaseClient {
         autoRefreshToken: false,
         detectSessionInUrl: false,
       },
-      // 👇 Muy importante: apuntar al esquema correcto
       db: { schema: "liwa" },
-    });
+    }) as SupabaseClient<any, any, any>;
   }
 
   // 🧭 En navegador, singleton con persistencia
@@ -28,8 +27,8 @@ export function getSupabaseBrowserClient(): SupabaseClient {
       autoRefreshToken: true,
       detectSessionInUrl: false,
     },
-    // 👇 Muy importante: apuntar al esquema correcto
     db: { schema: "liwa" },
-  });
+  }) as SupabaseClient<any, any, any>;
+
   return browserClient;
 }
