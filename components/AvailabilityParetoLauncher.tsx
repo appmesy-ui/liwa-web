@@ -2,16 +2,23 @@
 
 import { useState, ReactNode } from "react";
 import Modal from "./Modal";
-import AvailabilityPareto from "./AvailabilityPareto";
+import ParetoChart from "./ParetoChart";
 
 type Props = {
   from?: string;
   to?: string;
-  line?: string;
-  children: ReactNode; // tu card de Availability
+  line?: string;                 // opcional: valor inicial
+  line_field?: "line_id" | "line_code";
+  children: ReactNode;           // tu card de Availability
 };
 
-export default function AvailabilityParetoLauncher({ from, to, line, children }: Props) {
+export default function AvailabilityParetoLauncher({
+  from,
+  to,
+  line,
+  line_field = "line_id",
+  children,
+}: Props) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -56,14 +63,24 @@ export default function AvailabilityParetoLauncher({ from, to, line, children }:
         </button>
       </div>
 
-      {/* Modal con Pareto real */}
+      {/* Modal con Pareto */}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
         title="Pareto 80/20 · Pérdidas de Disponibilidad"
-        sizeClassName="sm:max-w-4xl"
+        sizeClassName="sm:max-w-5xl"
       >
-        <AvailabilityPareto from={from} to={to} line={line} groupBy="lvl2" topN={6} />
+        <ParetoChart
+          from={from ?? "2025-08-30T00:00:00.000Z"}
+          to={to ?? "2025-09-29T00:00:00.000Z"}
+          scope={line ? "line" : "total"}
+          line={line}
+          line_field={line_field}
+          defaultMetric="minutes"
+          defaultTop={10}
+          only_classified={true}
+          include_planned={true}
+        />
       </Modal>
     </>
   );

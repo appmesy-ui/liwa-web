@@ -1,155 +1,219 @@
-export const dynamic = "force-dynamic";
-
+// app/api/pareto-stops/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+export const dynamic = "force-dynamic";
+
 type Level = "l1" | "l2" | "l3";
 type Metric = "minutes" | "count";
+type PercentBase = "total" | "top";
+type PlannedMode = "all" | "only" | "exclude";
+type Source = "live" | "seed" | "both"; // opcional, por si usas la tabla seed
 
-function isoStartOfTodayUTC() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+function startOfUTCDate(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0));
+}
+function yesterdayStartUTC() {
+  const today0 = startOfUTCDate(new Date());
+  return new Date(today0.getTime() - 24 * 60 * 60 * 1000);
 }
 
 export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const p = url.searchParams;
+
+  const level = (p.get("level") || "l1").toLowerCase() as Level;
+  const metric = (p.get("metric") || "minutes").toLowerCase() as Metric;
+  const topK = Math.max(0, parseInt(p.get("top") || "10", 10));
+
+  // Filtros
+  const planned = ((p.get("planned") || "all").toLowerCase() as PlannedMode) || "all";
+  const onlyClassified = p.get("only_classified") !== "false"; // default true
+
+  // Línea (una sola)
+  const line = p.get("line") || undefined;             // puede ser id o code
+  const lineField = (p.get("line_field") || "line_id").toLowerCase(); // line_id | line_code
+
+  // Drill
+  const parentL1 = p.get("parent_l1") || undefined;
+  const parentL2 = p.get("parent_l2") || undefined;
+
+  // Otros
+  const percentBase = ((p.get("percent_base") || "total").toLowerCase() as PercentBase) || "total";
+  const source = ((p.get("source") || "live").toLowerCase() as Source) || "live"; // opcional
+
+  // Ventana de tiempo
+  let fromISO = p.get("from") || undefined;
+  let toISO = p.get("to") || undefined;
+  const toYesterday = p.get("to_yesterday") === "true";
+
   try {
-    const url = new URL(req.url);
-    const p = url.searchParams;
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-    const scope = (p.get("scope") || "total") as "total" | "line";
-    const lineCode = p.get("line") || undefined;
-
-    const level = (p.get("level") || "l1") as Level;
-    const metric = (p.get("metric") || "minutes") as Metric;
-    const top = Math.max(1, parseInt(p.get("top") || "10", 10));
-    const onlyClassified = p.get("only_classified") !== "false";
-    const toYesterday = p.get("to_yesterday") !== "false";
-
-    const parent_l1 = p.get("parent_l1") || undefined;
-    const parent_l2 = p.get("parent_l2") || undefined;
-
-    // rango
-    const toParam = p.get("to");
-    const fromParam = p.get("from");
-    const end = toParam ? new Date(toParam) : toYesterday ? isoStartOfTodayUTC() : new Date();
-    const start = fromParam ? new Date(fromParam) : new Date(end.getTime() - 30 * 24 * 3600 * 1000);
-
-    // supabase
-    const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY || (process.env as any).NEXT_SUPABASE_SERVICE_ROLE_KEY;
-    if (!supaUrl || !serviceKey)
-      return NextResponse.json({ ok: false, error: "Faltan credenciales Supabase" }, { status: 500 });
-    const supabase = createClient(supaUrl, serviceKey, { auth: { persistSession: false } });
-
-    // line_id opcional
-    let lineId: string | undefined;
-    if (scope === "line" && lineCode) {
-      const { data: lrow, error: lerr } = await supabase
-        .from("line")
-        .select("id, code")
-        .eq("code", lineCode)
-        .maybeSingle();
-      if (lerr) throw lerr;
-      lineId = lrow?.id;
-      if (!lineId) {
-        return NextResponse.json({
-          ok: true,
-          meta: { scope, line: lineCode, level, metric, from: start.toISOString(), to: end.toISOString(), coverage_80_at: null, note: "Línea no encontrada" },
-          categories: [],
-        });
-      }
+    if (!fromISO || !toISO) {
+      const toUTC = toYesterday ? yesterdayStartUTC() : startOfUTCDate(new Date());
+      const days = parseInt(p.get("days") || "7", 10);
+      const fromUTC = new Date(toUTC.getTime() - days * 24 * 60 * 60 * 1000);
+      fromISO = fromUTC.toISOString();
+      toISO = toUTC.toISOString();
     }
 
-    // base
-    let q = supabase
-      .from("stop_event")
-      .select("dur_min, ts_inicio, line_id, nivel_1, nivel_2, nivel_3, estado_clasif", {
-        head: false,
-        count: "exact",
-      })
-      .gte("ts_inicio", start.toISOString())
-      .lt("ts_inicio", end.toISOString());
-
-    if (onlyClassified) q = q.eq("estado_clasif", "OK");
-    if (lineId) q = q.eq("line_id", lineId);
-    if (parent_l1) q = q.eq("nivel_1", parent_l1);
-    if (parent_l2) q = q.eq("nivel_2", parent_l2);
-
-    const { data: rows, error } = await q.limit(5000);
-    if (error) throw error;
-
-    type Row = {
-      dur_min: number | null;
-      nivel_1: string | null;
-      nivel_2: string | null;
-      nivel_3: string | null;
-    };
-
-    // agrupado ESTRICTO por nivel
-    const map = new Map<string, { label: string; minutes: number; count: number }>();
-    for (const r of (rows || []) as Row[]) {
-      let key = "";
-      let label = "";
-
-      if (level === "l1") {
-        key = r.nivel_1 ?? "No clasificado (L1)";
-        label = key;
-      } else if (level === "l2") {
-        key = r.nivel_2 ?? "Sin nivel 2";
-        label = key;
+    // Resolver line_id si vino un code
+    let lineIdForFilter: string | undefined;
+    if (line) {
+      if (lineField === "line_id") {
+        lineIdForFilter = line;
+      } else if (lineField === "line_code") {
+        const { data: row, error } = await supabase
+          .schema("liwa")
+          .from("lines")
+          .select("id")
+          .eq("code", line)
+          .maybeSingle();
+        if (error) {
+          const msg = error.message || error.details || JSON.stringify(error);
+          return NextResponse.json({ ok: false, error: `Line lookup failed: ${msg}` }, { status: 500 });
+        }
+        if (!row) {
+          return NextResponse.json({ ok: false, error: `Line not found for ${lineField}=${line}` }, { status: 404 });
+        }
+        lineIdForFilter = row.id as string;
       } else {
-        // l3
-        key = r.nivel_3 ?? "Sin nivel 3";
-        label = key;
+        return NextResponse.json({ ok: false, error: `Invalid line_field: ${lineField}` }, { status: 400 });
       }
-
-      const o = map.get(key) || { label, minutes: 0, count: 0 };
-      o.minutes += Number(r.dur_min ?? 0);
-      o.count += 1;
-      map.set(key, o);
     }
 
-    let arr = Array.from(map.entries()).map(([key, v]) => ({
-      key,
-      label: v.label,
-      minutes: v.minutes,
-      count: v.count,
-    }));
+    // Columna por nivel
+    const groupCol = level === "l1" ? "lvl1_name" : level === "l2" ? "lvl2_name" : "lvl3_name";
 
-    // ordenar/top
-    arr.sort((a, b) => (metric === "minutes" ? b.minutes - a.minutes : b.count - a.count));
-    if (top > 0 && arr.length > top) arr = arr.slice(0, top);
+    // Helper para armar query base
+    const makeQuery = (table: string) =>
+      supabase
+        .schema("liwa")
+        .from(table)
+        .select(`
+          ${groupCol},
+          duration_s,
+          is_planned,
+          classified_ui,
+          lvl1_name,
+          lvl2_name,
+          line_id,
+          started_at
+        `)
+        .gte("started_at", fromISO!)
+        .lt("started_at", toISO!);
 
-    const total =
+    // Traer datos (v_events_ui y/o pareto_seed si usas source)
+    const datasets: any[][] = [];
+
+    if (source === "live" || source === "both") {
+      let q = makeQuery("v_events_ui");
+      if (onlyClassified) q = q.eq("classified_ui", true);
+      if (planned === "only") q = q.eq("is_planned", true);
+      if (planned === "exclude") q = q.eq("is_planned", false);
+      if (lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
+      if (parentL1) q = q.eq("lvl1_name", parentL1);
+      if (parentL2) q = q.eq("lvl2_name", parentL2);
+
+      const { data, error } = await q;
+      if (error) {
+        const msg = error.message || error.details || JSON.stringify(error);
+        return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+      }
+      datasets.push(data || []);
+    }
+
+    if (source === "seed" || source === "both") {
+      let q = makeQuery("pareto_seed"); // opcional: solo si la tienes
+      if (onlyClassified) q = q.eq("classified_ui", true);
+      if (planned === "only") q = q.eq("is_planned", true);
+      if (planned === "exclude") q = q.eq("is_planned", false);
+      if (lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
+      if (parentL1) q = q.eq("lvl1_name", parentL1);
+      if (parentL2) q = q.eq("lvl2_name", parentL2);
+
+      const { data, error } = await q;
+      if (error) {
+        const msg = error.message || error.details || JSON.stringify(error);
+        return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+      }
+      datasets.push(data || []);
+    }
+
+    const data = ([] as any[]).concat(...datasets);
+
+    // Agregación
+    type Agg = { name: string; minutes: number; count: number };
+    const agg: Record<string, Agg> = {};
+
+    for (const ev of data || []) {
+      let raw = (ev as any)[groupCol] as string | null;
+      if (level === "l3" && !raw) raw = "Sin nivel 3";
+      if (!raw) continue;
+      const name = String(raw).trim();
+      if (!name) continue;
+
+      if (!agg[name]) agg[name] = { name, minutes: 0, count: 0 };
+      agg[name].minutes += (ev.duration_s || 0) / 60;
+      agg[name].count += 1;
+    }
+
+    let rowsAll = Object.values(agg);
+    const totalMinutesAll = rowsAll.reduce((s, r) => s + r.minutes, 0);
+    const totalCountAll = rowsAll.reduce((s, r) => s + r.count, 0);
+
+    rowsAll.sort((a, b) => {
+      const va = metric === "minutes" ? a.minutes : a.count;
+      const vb = metric === "minutes" ? b.minutes : b.count;
+      if (vb !== va) return vb - va;
+      return a.name.localeCompare(b.name, "es");
+    });
+
+    let rows = rowsAll;
+    if (topK > 0) rows = rowsAll.slice(0, topK);
+
+    const baseValue =
       metric === "minutes"
-        ? arr.reduce((s, x) => s + x.minutes, 0)
-        : arr.reduce((s, x) => s + x.count, 0);
+        ? (percentBase === "top" ? rows.reduce((s, r) => s + r.minutes, 0) : totalMinutesAll)
+        : (percentBase === "top" ? rows.reduce((s, r) => s + r.count, 0) : totalCountAll);
 
     let acc = 0;
-    const categories = arr.map((x) => {
-      const base = metric === "minutes" ? x.minutes : x.count;
-      const pct = total > 0 ? (base * 100) / total : 0;
+    const out = rows.map((r, idx) => {
+      const value = metric === "minutes" ? r.minutes : r.count;
+      const pct = baseValue > 0 ? (value / baseValue) * 100 : 0;
       acc += pct;
-      return { key: x.key, label: x.label, minutes: x.minutes, count: x.count, pct, cumPct: acc };
+      return {
+        rank: idx + 1,
+        name: r.name,
+        minutes: Math.round(r.minutes * 100) / 100,
+        count: Math.round(r.count),
+        pct: Math.round(pct * 10) / 10,
+        pct_acc: Math.round(acc * 10) / 10,
+      };
     });
 
-    const coverage80 = categories.findIndex((c) => c.cumPct >= 80);
     return NextResponse.json({
       ok: true,
+      rows: out,
       meta: {
-        scope: lineId ? "line" : "total",
-        line: lineCode ?? null,
-        level,
-        metric,
-        from: start.toISOString(),
-        to: end.toISOString(),
-        coverage_80_at: coverage80 >= 0 ? coverage80 : null,
+        level, metric,
+        from: fromISO, to: toISO,
+        planned, only_classified: onlyClassified,
+        top: topK, percent_base: percentBase,
+        total_minutes: Math.round(totalMinutesAll * 100) / 100,
+        total_count: totalCountAll,
+        parents: { l1: parentL1 ?? null, l2: parentL2 ?? null },
+        line: line ?? null, line_field: lineField,
+        source,
       },
-      categories,
     });
   } catch (e: any) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
+    const msg = e?.message || e?.toString?.() || (typeof e === "object" ? JSON.stringify(e) : String(e));
+    console.error("pareto-stops fatal:", e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
