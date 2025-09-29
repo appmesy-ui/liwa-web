@@ -215,6 +215,7 @@ export default function SettingsPage() {
 /* =================== LÍNEAS =================== */
 function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClientComponentClient> }) {
   const supabase = parentClient;
+  const sb = supabase as any; // <-- bypass TS for .schema("liwa")
 
   const [rows, setRows] = useState<Line[]>([]);
   const [q, setQ] = useState("");
@@ -255,7 +256,7 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
           if (mounted) setOrgId(null);
           return;
         }
-        const { data: memberships, error } = await supabase
+        const { data: memberships, error } = await sb
           .schema("liwa")
           .from("org_members")
           .select("org_id")
@@ -268,14 +269,14 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
       }
     })();
     return () => { mounted = false; };
-  }, [supabase]);
+  }, [supabase, sb]);
 
   // 2) plantas
   useEffect(() => {
     let mounted = true;
     (async () => {
       if (!orgId) return;
-      const { data, error } = await supabase
+      const { data, error } = await sb
         .schema("liwa")
         .from("plants")
         .select("id, org_id, name")
@@ -291,7 +292,7 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
       }
     })();
     return () => { mounted = false; };
-  }, [orgId, supabase]);
+  }, [orgId, sb]);
 
   // 3) líneas
   async function loadLines() {
@@ -299,8 +300,8 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
       setLoading(true);
       setErr(null);
       const [{ data: lines, error: e1 }, { data: prows, error: e2 }] = await Promise.all([
-        supabase.schema("liwa").from("lines").select("id, org_id, plant_id, code, name, is_active, created_at").order("name"),
-        supabase.schema("liwa").from("plants").select("id, name"),
+        sb.schema("liwa").from("lines").select("id, org_id, plant_id, code, name, is_active, created_at").order("name"),
+        sb.schema("liwa").from("plants").select("id, name"),
       ]);
       if (e1) throw e1;
       if (e2) throw e2;
@@ -336,7 +337,7 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
     setCreateErr(null);
     setCreating(true);
     try {
-      const { error } = await supabase.schema("liwa").from("lines").insert({
+      const { error } = await sb.schema("liwa").from("lines").insert({
         org_id: orgId, plant_id: newPlantId, code: newCode.trim(), name: newName.trim(), is_active: true,
       });
       if (error) throw error;
@@ -364,7 +365,7 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
     if (!editCode.trim() || !editName.trim()) { setEditErr("Completa código y nombre."); return; }
     setEditErr(null); setEditSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await sb
         .schema("liwa")
         .from("lines")
         .update({ plant_id: editPlantId, code: editCode.trim(), name: editName.trim(), is_active: editActive })
@@ -378,7 +379,7 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
 
   async function toggleActive(line: Line) {
     try {
-      await supabase.schema("liwa").from("lines").update({ is_active: !line.is_active }).eq("id", line.id);
+      await sb.schema("liwa").from("lines").update({ is_active: !line.is_active }).eq("id", line.id);
       await loadLines();
     } catch { /* noop */ }
   }
@@ -478,6 +479,7 @@ function LinesTab({ parentClient }: { parentClient: ReturnType<typeof createClie
 /* =================== MÁQUINAS =================== */
 function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createClientComponentClient> }) {
   const supabase = parentClient;
+  const sb = supabase as any; // <-- bypass TS for .schema("liwa")
 
   const [rows, setRows] = useState<Machine[]>([]);
   const [q, setQ] = useState("");
@@ -517,13 +519,13 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
         const { data: userRes } = await supabase.auth.getUser();
         const userId = userRes?.user?.id ?? null;
         if (!userId) { if (mounted) setOrgId(null); return; }
-        const { data: memberships, error } = await supabase.schema("liwa").from("org_members").select("org_id").eq("user_id", userId).limit(1);
+        const { data: memberships, error } = await sb.schema("liwa").from("org_members").select("org_id").eq("user_id", userId).limit(1);
         if (error) throw error;
         if (mounted) setOrgId(memberships?.[0]?.org_id ?? null);
       } catch { if (mounted) setOrgId(null); }
     })();
     return () => { mounted = false; };
-  }, [supabase]);
+  }, [supabase, sb]);
 
   // 2) líneas (selector)
   useEffect(() => {
@@ -531,13 +533,13 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
     (async () => {
       if (!orgId) return;
       setLinesErr(null);
-      const { data, error } = await supabase.schema("liwa").from("lines").select("id, name, code, org_id").eq("org_id", orgId).order("name");
+      const { data, error } = await sb.schema("liwa").from("lines").select("id, name, code, org_id").eq("org_id", orgId).order("name");
       if (!mounted) return;
       if (error) { setLinesErr(error.message); setLines([]); }
       else { setLines(data ?? []); if ((data ?? []).length === 1) { setNewLineId((data ?? [])[0].id); } }
     })();
     return () => { mounted = false; };
-  }, [orgId, supabase]);
+  }, [orgId, sb]);
 
   // 3) máquinas + nombres de línea
   async function loadMachines() {
@@ -545,8 +547,8 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
       setLoading(true);
       setErr(null);
       const [{ data: machines, error: e1 }, { data: lrows, error: e2 }] = await Promise.all([
-        supabase.schema("liwa").from("machines").select("id, org_id, line_id, code, name, ideal_cycle_s, is_active, created_at").order("name"),
-        supabase.schema("liwa").from("lines").select("id, name"),
+        sb.schema("liwa").from("machines").select("id, org_id, line_id, code, name, ideal_cycle_s, is_active, created_at").order("name"),
+        sb.schema("liwa").from("lines").select("id, name"),
       ]);
       if (e1) throw e1;
       if (e2) throw e2;
@@ -555,7 +557,7 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
     } catch (e: any) {
       setErr(e?.message ?? "Error al cargar máquinas");
     } finally {
-           setLoading(false);
+      setLoading(false);
     }
   }
   useEffect(() => { loadMachines(); /* eslint-disable-next-line */ }, []);
@@ -583,7 +585,7 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
 
     setCreateErr(null); setCreating(true);
     try {
-      const { error } = await supabase.schema("liwa").from("machines").insert({
+      const { error } = await sb.schema("liwa").from("machines").insert({
         org_id: orgId, line_id: newLineId, code: newCode.trim(), name: newName.trim(), ideal_cycle_s: cycle, is_active: true,
       });
       if (error) throw error;
@@ -615,7 +617,7 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
 
     setEditErr(null); setEditSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await sb
         .schema("liwa")
         .from("machines")
         .update({
@@ -631,7 +633,7 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
 
   async function toggleActive(m: Machine) {
     try {
-      await supabase.schema("liwa").from("machines").update({ is_active: !m.is_active }).eq("id", m.id);
+      await sb.schema("liwa").from("machines").update({ is_active: !m.is_active }).eq("id", m.id);
       await loadMachines();
     } catch { /* noop */ }
   }
@@ -738,6 +740,7 @@ function MachinesTab({ parentClient }: { parentClient: ReturnType<typeof createC
 /* =================== TURNOS (mock localStorage) =================== */
 function ShiftsTab({ parentClient }: { parentClient: ReturnType<typeof createClientComponentClient> }) {
   const supabase = parentClient;
+  const sb = supabase as any; // <-- bypass TS for .schema("liwa")
 
   const [orgId, setOrgId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<ShiftTemplate[]>([]);
@@ -770,7 +773,7 @@ function ShiftsTab({ parentClient }: { parentClient: ReturnType<typeof createCli
         const { data: userRes } = await supabase.auth.getUser();
         const userId = userRes?.user?.id ?? null;
         if (!userId) { if (mounted) setOrgId(null); return; }
-        const { data: memberships, error } = await supabase.schema("liwa").from("org_members").select("org_id").eq("user_id", userId).limit(1);
+        const { data: memberships, error } = await sb.schema("liwa").from("org_members").select("org_id").eq("user_id", userId).limit(1);
         if (error) throw error;
         const oid = memberships?.[0]?.org_id ?? null;
         if (mounted) setOrgId(oid);
@@ -781,7 +784,7 @@ function ShiftsTab({ parentClient }: { parentClient: ReturnType<typeof createCli
       } catch { if (mounted) setOrgId(null); }
     })();
     return () => { mounted = false; };
-  }, [supabase]);
+  }, [supabase, sb]);
 
   function persist(next: ShiftTemplate[]) {
     if (!orgId) return;
@@ -953,6 +956,7 @@ function ShiftsTab({ parentClient }: { parentClient: ReturnType<typeof createCli
 /* =================== CALENDARIO (mock localStorage) =================== */
 function CalendarTab({ parentClient }: { parentClient: ReturnType<typeof createClientComponentClient> }) {
   const supabase = parentClient;
+  const sb = supabase as any; // <-- bypass TS for .schema("liwa")
 
   const [orgId, setOrgId] = useState<string | null>(null);
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -973,7 +977,7 @@ function CalendarTab({ parentClient }: { parentClient: ReturnType<typeof createC
         const { data: userRes } = await supabase.auth.getUser();
         const userId = userRes?.user?.id ?? null;
         if (!userId) { if (mounted) setOrgId(null); return; }
-        const { data: memberships, error } = await supabase.schema("liwa").from("org_members").select("org_id").eq("user_id", userId).limit(1);
+        const { data: memberships, error } = await sb.schema("liwa").from("org_members").select("org_id").eq("user_id", userId).limit(1);
         if (error) throw error;
         const oid = memberships?.[0]?.org_id ?? null;
         if (!mounted) return;
@@ -985,7 +989,7 @@ function CalendarTab({ parentClient }: { parentClient: ReturnType<typeof createC
         }
 
         if (oid) {
-          const { data: prows, error: e2 } = await supabase.schema("liwa").from("plants").select("id, name").eq("org_id", oid).order("name");
+          const { data: prows, error: e2 } = await sb.schema("liwa").from("plants").select("id, name").eq("org_id", oid).order("name");
           if (e2) throw e2;
           setPlants(prows ?? []);
           if ((prows ?? []).length === 1) setPlantId((prows ?? [])[0].id);
@@ -995,7 +999,7 @@ function CalendarTab({ parentClient }: { parentClient: ReturnType<typeof createC
       }
     })();
     return () => { mounted = false; };
-  }, [supabase]);
+  }, [supabase, sb]);
 
   // cargar asignaciones del mes cuando cambian plant o mes
   useEffect(() => {
