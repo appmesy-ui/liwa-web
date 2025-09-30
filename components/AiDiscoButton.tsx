@@ -2,25 +2,54 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 export default function AiDiscoButton() {
   const pathname = usePathname();
-  if (pathname?.startsWith("/ai")) return null; // ocultar en /ai
+  const supabase = createClientComponentClient();
+
+  // null = aún chequeando, true/false = estado real
+  const [logged, setLogged] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    // 1) estado inicial
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setLogged(Boolean(data?.session));
+    })();
+
+    // 2) suscripción a cambios (login / logout / token refresh)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setLogged(Boolean(session));
+    });
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
+  }, [supabase]);
+
+  // 🔒 ocultar en /ai, aún cargando, o sin sesión
+  if (pathname?.startsWith("/ai")) return null;
+  if (logged !== true) return null;
 
   return (
     <>
-      {/* Contenedor de anclaje responsive:
-          - Ocupa todo el ancho (fixed + inset-x-0)
-          - Coloca el botón a la IZQUIERDA en móvil y a la DERECHA en >= md
-          - Sube el botón en desktop para no tapar CTAs (offset mayor)
-      */}
       <div
         className={`
           fixed z-50 inset-x-0 pointer-events-none
           [--liwa-ai-offset:16px] md:[--liwa-ai-offset:80px]
         `}
         style={{
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + var(--liwa-ai-offset))",
+          bottom:
+            "calc(env(safe-area-inset-bottom, 0px) + var(--liwa-ai-offset))",
         }}
       >
         <div className="mx-4 md:mx-6 flex justify-start md:justify-end">
@@ -38,7 +67,6 @@ export default function AiDiscoButton() {
               focus:outline-none focus:ring-4 focus:ring-cyan-400/30
             `}
           >
-            {/* Borde neón gradiente animado */}
             <span
               aria-hidden="true"
               className="
@@ -50,7 +78,6 @@ export default function AiDiscoButton() {
               <span className="block h-full w-full rounded-full bg-black" />
             </span>
 
-            {/* Texto “AI” con efecto disco */}
             <span
               className="
                 relative z-10
@@ -70,11 +97,14 @@ export default function AiDiscoButton() {
         </div>
       </div>
 
-      {/* Keyframes globales para el efecto “disco” */}
       <style jsx global>{`
         @keyframes liwaDisco {
-          0% { filter: hue-rotate(0deg); }
-          100% { filter: hue-rotate(360deg); }
+          0% {
+            filter: hue-rotate(0deg);
+          }
+          100% {
+            filter: hue-rotate(360deg);
+          }
         }
       `}</style>
     </>
