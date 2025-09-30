@@ -9,6 +9,23 @@ import AiDiscoButton from "../components/AiDiscoButton";
 export const metadata: Metadata = {
   title: "LIWA",
   description: "Operaciones con LIWA",
+
+  // 👉 PWA manifest + theme
+  manifest: "/manifest.webmanifest",
+  themeColor: "#0ea5b7",
+
+  // 👉 Iconos para navegadores y iOS
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/apple-touch-icon.png",
+  },
+
+  // 👉 Configuración especial para iOS
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "LIWA",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -22,11 +39,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="inline-flex items-center rounded-md bg-sky-500/10 px-2 py-1 text-xs font-semibold text-sky-300">
                 LIWA
               </span>
-              <span className="hidden sm:inline text-sm text-slate-300">Dashboard</span>
+              <span className="hidden sm:inline text-sm text-slate-300">
+                Dashboard
+              </span>
             </Link>
 
             <nav className="flex items-center gap-4">
-              <Link href="/pending" className="text-sm text-slate-300 hover:text-white">
+              <Link
+                href="/pending"
+                className="text-sm text-slate-300 hover:text-white"
+              >
                 Pendientes
               </Link>
               <Link
@@ -48,3 +70,4 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
