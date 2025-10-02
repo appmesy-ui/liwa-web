@@ -167,7 +167,7 @@ export default function SettingsPage() {
           Necesitas iniciar sesión para acceder a la configuración.
         </p>
         <Link
-          href="/login?next=/settings"
+          href="/signin?next=/settings"
           className="inline-flex items-center rounded-md bg-sky-600 px-4 py-2 text-sm text-white hover:bg-sky-500"
         >
           Iniciar sesión
@@ -184,6 +184,17 @@ export default function SettingsPage() {
           Administra líneas, máquinas y parámetros operativos.
         </p>
       </header>
+
+      {/* accesos rápidos */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Link
+          href="/settings/admin-users"
+          className="inline-flex items-center rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-900"
+        >
+          Administración de usuarios →
+        </Link>
+        
+      </div>
 
       <nav className="flex gap-2 border-b border-slate-800 mb-4">
         {TABS.map((t) => (
@@ -1177,7 +1188,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-950 p-4">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold">{title}</h3>
+          <h3 className="text_base font-semibold">{title}</h3>
           <button className="text-slate-400 hover:text-slate-200" onClick={onClose}>✕</button>
         </div>
         {children}
@@ -1212,4 +1223,3 @@ declare global {
     "input": HTMLInputElement;
   }
 }
-

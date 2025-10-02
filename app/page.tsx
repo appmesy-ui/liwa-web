@@ -1,8 +1,17 @@
 // app/page.tsx
-export const dynamic = "force-dynamic";
-export const revalidate = false;
-
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-export default function Home() {
-  redirect("/signin");
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+
+export default async function Home() {
+  const supabase = createServerComponentClient({ cookies });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (session) {
+    redirect("/dashboard");
+  } else {
+    redirect("/signin");
+  }
 }
