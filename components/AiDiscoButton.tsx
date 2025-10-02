@@ -1,12 +1,15 @@
-// components/AiDiscoButton.tsx
 "use client";
 
-import Link from "next/link";
+import Link from "next/link"; // 👈 se había perdido este import
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
-export default function AiDiscoButton() {
+type Props = {
+  className?: string;
+};
+
+export default function AiDiscoButton({ className = "" }: Props) {
   const pathname = usePathname();
   const supabase = createClientComponentClient();
   const [logged, setLogged] = useState<boolean | null>(null);
@@ -28,13 +31,14 @@ export default function AiDiscoButton() {
     };
   }, [supabase]);
 
+  // Ocultar si no corresponde
   if (pathname?.startsWith("/ai")) return null;
   if (pathname?.startsWith("/signin")) return null;
   if (logged !== true) return null;
 
   return (
     <>
-      <div className="relative group">
+      <div className={`relative group ${className}`}>
         <Link
           href="/ai"
           title="Abrir LIWA AI"
@@ -45,7 +49,7 @@ export default function AiDiscoButton() {
             focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40
           "
         >
-          {/* borde animado como neón */}
+          {/* Borde animado como neón */}
           <span
             aria-hidden="true"
             className="
