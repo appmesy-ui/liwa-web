@@ -28,6 +28,7 @@ type LineDetail = {
 
 type KpiRow = {
   line_code: string | null;
+  planned_runtime_sec: number | null;
   availability: number | null;
 };
 
@@ -35,6 +36,18 @@ type KpisResponse =
   | { ok: true; rows: KpiRow[] }
   | { ok: false; error: string }
   | any;
+
+type DowntimeRow = {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_s: number | null;
+  line_code: string | null;
+  machine_code: string | null;
+  state?: "pending" | "classified" | null;
+  n2_name?: string | null;
+  n3_name?: string | null;
+};
 
 /* ===== Helpers ===== */
 const clamp01 = (n?: number | null) =>
@@ -94,79 +107,68 @@ export default function AvailabilityByLinePage({ params }: { params: { line: str
         setLoading(true);
         setErr(null);
 
-        // (1) KPI base de la línea (con rango)
+        // (1) Traer KPI de la línea DESDE /api/kpis (con rango)
         const u = new URL("/api/kpis", window.location.origin);
         if (from) u.searchParams.set("from", from);
         if (to) u.searchParams.set("to", to);
         u.searchParams.set("step", "all");
+        u.searchParams.set("line", lineParam); // filtra en backend por la línea exacta
         const resK = await fetch(u.toString(), { cache: "no-store" });
         const jsonK = (await safeJson(resK)) as KpisResponse | null;
 
-        const row = jsonK?.ok
-          ? (jsonK.rows || []).find(
-              (r) => (r.line_code || "").toUpperCase() === lineParam
-            )
-          : null;
+        const row: KpiRow | null =
+          jsonK?.ok ? ((jsonK.rows || [])[0] as KpiRow) ?? null : null;
 
-        // (2) Detalle desde endpoint real (si existe) con rango
-        let det: LineDetail | null = null;
-        try {
-          const u2 = new URL("/api/availability", window.location.origin);
-          u2.searchParams.set("line", lineParam);
-          if (from) u2.searchParams.set("from", from);
-          if (to) u2.searchParams.set("to", to);
-          const resA = await fetch(u2.toString(), { cache: "no-store" });
-          const jA = await safeJson(resA);
-          if (jA && jA.ok) det = jA.data as LineDetail;
-        } catch { /* sin endpoint; mock abajo */ }
+        // (2) Calcular KPIs de cabecera SIN mock:
+        //     availability (A) y planned vienen de /api/kpis.
+        //     unplanned = planned * (1 - A)
+        //     runtime   = planned - unplanned
+        const A = clamp01(row?.availability ?? null);
+        const planned = Math.max(0, Math.floor(Number(row?.planned_runtime_sec ?? 0)));
+        const unplanned = planned > 0 ? Math.max(0, Math.floor(planned * (1 - A))) : 0;
+        const runtime = Math.max(0, planned - unplanned);
 
-        // (3) Mock consistente si no hay endpoint real
-        if (!det) {
-          const a = row?.availability ?? 0.86;
-          const planned = 8 * 3600; // 8h
-          const unplanned = Math.round(planned * Math.max(0, 1 - clamp01(a)) * 0.8);
-          const runtime = planned - unplanned;
+        let det: LineDetail = {
+          line_code: lineParam,
+          availability: A,
+          planned_s: planned,
+          unplanned_s: unplanned,
+          runtime_s: runtime,
+          events: [],
+        };
 
-          const now = new Date();
-          const iso = (d: Date) => d.toISOString();
-          const mkEvent = (mins: number, n2: string, n3: string, offsetMin: number, machine = "E1") => {
-            const end = new Date(now.getTime() - offsetMin * 60 * 1000);
-            const start = new Date(end.getTime() - mins * 60 * 1000);
-            return {
-              id: uid(),
-              started_at: iso(start),
-              ended_at: iso(end),
-              duration_s: mins * 60,
-              machine_code: machine,
-              n2, n3,
-              classified: Math.random() > 0.3,
+        // (3) Traer PAROS REALES (no planificados) DESDE /api/downtimes
+        //     Limitamos a 5 más recientes y filtramos por la misma línea.
+        const uDt = new URL("/api/downtimes", window.location.origin);
+        if (from) uDt.searchParams.set("from", from);
+        if (to) uDt.searchParams.set("to", to);
+        uDt.searchParams.set("line", lineParam);
+        uDt.searchParams.set("limit", "5");
+        // si tu endpoint soporta filtrar solo no planificados, puedes añadir:
+        // uDt.searchParams.set("planned", "false");
+
+        const resD = await fetch(uDt.toString(), { cache: "no-store" });
+        const jD: any = await safeJson(resD);
+        if (jD?.ok && Array.isArray(jD.rows)) {
+          const rows = jD.rows as DowntimeRow[];
+          det.events = rows
+            .slice()
+            .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+            .map((e) => ({
+              id: e.id,
+              started_at: e.started_at,
+              ended_at: e.ended_at,
+              duration_s: Math.max(0, Math.floor(Number(e.duration_s ?? 0))),
+              machine_code: e.machine_code ?? null,
+              n2: e.n2_name ?? null,
+              n3: e.n3_name ?? null,
+              classified: e.state === "classified",
               notes: null,
-            };
-          };
-
-          det = {
-            line_code: lineParam,
-            availability: a,
-            planned_s: planned,
-            unplanned_s: unplanned,
-            runtime_s: runtime,
-            events: [
-              mkEvent(35, "Avería", "Atasco en salida", 45, "E2"),
-              mkEvent(22, "Setup", "Cambio de formato", 160, "E1"),
-              mkEvent(12, "Microparo", "Sensor ocupado", 260, "E3"),
-              mkEvent(18, "Avería", "Corte de cinta", 360, "E1"),
-              mkEvent(8, "Calidad", "Revisión de lote", 500, "E2"),
-            ],
-          };
+            }));
         }
 
         if (!mounted) return;
-
-        if (row && (det?.availability == null)) {
-          det = { ...(det || { line_code: lineParam }), availability: row.availability };
-        }
-
-        setDetail(det || { line_code: lineParam });
+        setDetail(det);
       } catch (e: any) {
         if (!mounted) return;
         setErr(e?.message ?? "Error inesperado");
@@ -176,7 +178,9 @@ export default function AvailabilityByLinePage({ params }: { params: { line: str
       }
     })();
 
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [lineParam, from, to]);
 
   const events = useMemo(
@@ -296,12 +300,4 @@ function CardMini({ title, value, ring = "ring-white/10" }: { title: string; val
       <div className={`pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition ring-2 ${ring}`} />
     </div>
   );
-}
-
-function uid() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    // @ts-ignore
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).slice(2);
 }

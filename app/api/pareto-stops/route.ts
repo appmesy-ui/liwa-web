@@ -1,14 +1,13 @@
-// app/api/pareto-stops/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-type Level = "l1" | "l2" | "l3";
+type Level = "l1" | "l2"; // ← solo 2 niveles efectivos con la vista actual
 type Metric = "minutes" | "count";
 type PercentBase = "total" | "top";
 type PlannedMode = "all" | "only" | "exclude";
-type Source = "live" | "seed" | "both"; // opcional, por si usas la tabla seed
+type Source = "live" | "seed" | "both";
 
 function startOfUTCDate(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0));
@@ -28,21 +27,20 @@ export async function GET(req: NextRequest) {
 
   // Filtros
   const planned = ((p.get("planned") || "all").toLowerCase() as PlannedMode) || "all";
-  const onlyClassified = p.get("only_classified") !== "false"; // default true
+  const onlyClassified = p.get("only_classified") !== "false";
 
-  // Línea (una sola)
-  const line = p.get("line") || undefined;             // puede ser id o code
+  // Línea
+  const line = p.get("line") || undefined;
   const lineField = (p.get("line_field") || "line_id").toLowerCase(); // line_id | line_code
 
   // Drill
   const parentL1 = p.get("parent_l1") || undefined;
-  const parentL2 = p.get("parent_l2") || undefined;
 
   // Otros
   const percentBase = ((p.get("percent_base") || "total").toLowerCase() as PercentBase) || "total";
-  const source = ((p.get("source") || "live").toLowerCase() as Source) || "live"; // opcional
+  const source = ((p.get("source") || "live").toLowerCase() as Source) || "live";
 
-  // Ventana de tiempo
+  // Ventana
   let fromISO = p.get("from") || undefined;
   let toISO = p.get("to") || undefined;
   const toYesterday = p.get("to_yesterday") === "true";
@@ -61,7 +59,7 @@ export async function GET(req: NextRequest) {
       toISO = toUTC.toISOString();
     }
 
-    // Resolver line_id si vino un code
+    // Resolver line_id si vino code
     let lineIdForFilter: string | undefined;
     if (line) {
       if (lineField === "line_id") {
@@ -86,10 +84,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Columna por nivel
-    const groupCol = level === "l1" ? "lvl1_name" : level === "l2" ? "lvl2_name" : "lvl3_name";
+    // ⬇⬇ MAPEAMOS NIVELES A LAS COLUMNAS DISPONIBLES EN LA VISTA
+    // L1 -> lvl2_name  |  L2 -> lvl3_name
+    const groupCol = level === "l1" ? "lvl2_name" : "lvl3_name";
 
-    // Helper para armar query base
     const makeQuery = (table: string) =>
       supabase
         .schema("liwa")
@@ -99,15 +97,14 @@ export async function GET(req: NextRequest) {
           duration_s,
           is_planned,
           classified_ui,
-          lvl1_name,
           lvl2_name,
+          lvl3_name,
           line_id,
           started_at
         `)
         .gte("started_at", fromISO!)
         .lt("started_at", toISO!);
 
-    // Traer datos (v_events_ui y/o pareto_seed si usas source)
     const datasets: any[][] = [];
 
     if (source === "live" || source === "both") {
@@ -116,9 +113,7 @@ export async function GET(req: NextRequest) {
       if (planned === "only") q = q.eq("is_planned", true);
       if (planned === "exclude") q = q.eq("is_planned", false);
       if (lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
-      if (parentL1) q = q.eq("lvl1_name", parentL1);
-      if (parentL2) q = q.eq("lvl2_name", parentL2);
-
+      if (level === "l2" && parentL1) q = q.eq("lvl2_name", parentL1); // drill
       const { data, error } = await q;
       if (error) {
         const msg = error.message || error.details || JSON.stringify(error);
@@ -128,14 +123,12 @@ export async function GET(req: NextRequest) {
     }
 
     if (source === "seed" || source === "both") {
-      let q = makeQuery("pareto_seed"); // opcional: solo si la tienes
+      let q = makeQuery("pareto_seed"); // opcional
       if (onlyClassified) q = q.eq("classified_ui", true);
       if (planned === "only") q = q.eq("is_planned", true);
       if (planned === "exclude") q = q.eq("is_planned", false);
       if (lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
-      if (parentL1) q = q.eq("lvl1_name", parentL1);
-      if (parentL2) q = q.eq("lvl2_name", parentL2);
-
+      if (level === "l2" && parentL1) q = q.eq("lvl2_name", parentL1);
       const { data, error } = await q;
       if (error) {
         const msg = error.message || error.details || JSON.stringify(error);
@@ -152,8 +145,7 @@ export async function GET(req: NextRequest) {
 
     for (const ev of data || []) {
       let raw = (ev as any)[groupCol] as string | null;
-      if (level === "l3" && !raw) raw = "Sin nivel 3";
-      if (!raw) continue;
+      if (!raw) continue; // sin etiqueta no entra a pareto
       const name = String(raw).trim();
       if (!name) continue;
 
@@ -206,7 +198,7 @@ export async function GET(req: NextRequest) {
         top: topK, percent_base: percentBase,
         total_minutes: Math.round(totalMinutesAll * 100) / 100,
         total_count: totalCountAll,
-        parents: { l1: parentL1 ?? null, l2: parentL2 ?? null },
+        parents: { l1: parentL1 ?? null },
         line: line ?? null, line_field: lineField,
         source,
       },

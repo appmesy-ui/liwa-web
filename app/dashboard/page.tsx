@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 /* =========================
@@ -23,7 +22,7 @@ type KpisResponse = {
   ok?: boolean;
   rows?: KpiRow[];
   series?: { bucket_ts: string; line_code: string | null; oee: number | null }[];
-  pending?: number;
+  // pending?: number;  // ⬅︎ ya no lo usamos desde /api/kpis
   error?: string;
 };
 
@@ -41,26 +40,6 @@ const dtf = new Intl.DateTimeFormat("es-ES", {
   hour: "2-digit",
   minute: "2-digit",
 });
-
-/* =========================
-   Sign out
-========================= */
-function SignOutButton() {
-  const router = useRouter();
-  const supabase = createClientComponentClient();
-  return (
-    <button
-      onClick={async () => {
-        await supabase.auth.signOut();
-        router.push("/login");
-      }}
-      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10 transition"
-      title="Cerrar sesión"
-    >
-      Cerrar sesión
-    </button>
-  );
-}
 
 /* =========================
    Sparkline
@@ -116,7 +95,7 @@ function LineCardMobile({ code, a, p, q, oee, serie }: { code: string; a: number
 }
 
 /* =========================
-   KPI Card
+   KPI Card (A, P, Q)
 ========================= */
 function KpiCard({ title, valueNum, value, subtitle }: { title: string; valueNum?: number | null; value: string; subtitle?: string; }) {
   const v = clamp01(valueNum ?? 0);
@@ -139,6 +118,90 @@ function KpiCard({ title, valueNum, value, subtitle }: { title: string; valueNum
     </div>
   );
 }
+
+/* Enlace envolviendo KPI card (overlay) */
+function KpiCardLink({
+  href,
+  title,
+  valueNum,
+  value,
+  subtitle,
+}: {
+  href: string;
+  title: string;
+  valueNum?: number | null;
+  value: string;
+  subtitle?: string;
+}) {
+  return (
+    <div className="relative group">
+      <KpiCard title={title} valueNum={valueNum} value={value} subtitle={subtitle} />
+      <Link href={href} aria-label={`Ver detalle de ${title}`} className="absolute inset-0 rounded-2xl" />
+      <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
+    </div>
+  );
+}
+
+/* =========================
+   OEE HERO (NO CLICABLE)
+========================= */
+function OeeHero({
+  oee,
+  loading,
+  children,
+}: {
+  oee?: number | null;
+  loading: boolean;
+  children?: ReactNode;
+}) {
+  const val = clamp01(oee ?? 0);
+  const radius = 56;
+  const circumference = 2 * Math.PI * radius;
+  const progress = circumference * val;
+  const remainder = circumference - progress;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-5 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.6)]">
+      <div className="flex flex-col md:flex-row items-stretch gap-6">
+        {/* Gauge */}
+        <div className="relative shrink-0 self-center md:self-auto">
+          <svg width="140" height="140" viewBox="0 0 140 140" aria-label="OEE gauge">
+            <circle cx="70" cy="70" r={radius} stroke="rgba(255,255,255,0.12)" strokeWidth="12" fill="none" />
+            <defs>
+              <linearGradient id="oeeGrad" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stopColor="#60a5fa" />
+                <stop offset="60%" stopColor="#22c55e" />
+                <stop offset="100%" stopColor="#eab308" />
+              </linearGradient>
+            </defs>
+            <circle
+              cx="70"
+              cy="70"
+              r={radius}
+              stroke="url(#oeeGrad)"
+              strokeWidth="12"
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray={`${progress} ${remainder}`}
+              transform="rotate(-90 70 70)"
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div className="text-[11px] tracking-wide text-slate-300/80">OEE</div>
+            <div className="text-4xl font-semibold">{loading ? "…" : pct(oee)}</div>
+            <div className="mt-1 text-[11px] px-2 py-0.5 rounded-md border border-white/10 text-slate-300/80">A × P × Q</div>
+          </div>
+        </div>
+
+        {/* Panel de KPIs (A, P, Q) */}
+        <div className="grow grid grid-cols-1 sm:grid-cols-3 md:grid-cols-3 gap-4">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 /* =========================
    Página
@@ -222,7 +285,7 @@ export default function DashboardPage() {
   }, [hydrated, supabase]);
 
   // ========================
-  //  Fetch KPIs robusto
+  //  Fetch KPIs (A/P/Q/OEE) + series
   // ========================
   useEffect(() => {
     if (!hydrated || !fromISO || !toISO) return;
@@ -255,9 +318,6 @@ export default function DashboardPage() {
         const kRows: KpiRow[] = Array.isArray(json?.rows) ? (json!.rows as KpiRow[]) : [];
         setRows(kRows.slice().sort((a, b) => (a.line_code || "").localeCompare(b.line_code || "")));
 
-        if (typeof json?.pending === "number") setPendingCount(Number(json?.pending ?? 0));
-        else setPendingCount(0);
-
         // series (usa row.spark si viene)
         const by: Record<string, number[]> = {};
         for (const r of kRows) {
@@ -284,7 +344,6 @@ export default function DashboardPage() {
         if (!mounted) return;
         setErr(e?.message ?? "Error inesperado");
         setRows([]);
-        setPendingCount(0);
         setSeriesByLine({});
       } finally {
         if (mounted) setLoading(false);
@@ -294,6 +353,30 @@ export default function DashboardPage() {
     load();
     return () => { mounted = false; };
   }, [hydrated, fromISO, toISO]);
+
+  // ========================
+  //  Contador de pendientes (misma fuente que la página de Pendientes)
+  // ========================
+  useEffect(() => {
+    if (!fromISO || !toISO) return;
+    let alive = true;
+    (async () => {
+      try {
+        const qs = new URLSearchParams({ state: "pending", limit: "1" });
+        // mismo rango que la vista
+        if (fromISO) qs.set("from", fromISO);
+        if (toISO)   qs.set("to", toISO);
+        const res = await fetch(`/api/downtimes?${qs.toString()}`, { cache: "no-store" });
+        const j = await res.json();
+        if (!alive) return;
+        if (j?.ok) setPendingCount(Number(j.total_count ?? 0));
+        else setPendingCount(0);
+      } catch {
+        if (alive) setPendingCount(0);
+      }
+    })();
+    return () => { alive = false; };
+  }, [fromISO, toISO]);
 
   // usar todas las líneas si aún no hay selección
   const rowsForAgg = useMemo(
@@ -326,6 +409,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen w-full text-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+      {/* Encabezado interno del dashboard (logo + info + rango) — sin botón de cerrar sesión */}
       <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur px-5">
         <div className="max-w-7xl mx-auto py-4 flex flex-wrap gap-3 items-center justify-between">
           <div className="flex items-center gap-4">
@@ -346,34 +430,33 @@ export default function DashboardPage() {
               <button className={rangeBtn("7d")} onClick={() => setRange("7d")}>7d</button>
               <button className={rangeBtn("30d")} onClick={() => setRange("30d")}>30d</button>
             </div>
-            <SignOutButton />
           </div>
         </div>
       </header>
 
       <section className="max-w-7xl mx-auto px-5 py-8">
-        {/* KPIs globales */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-          <div className="relative group">
-            <KpiCard title="OEE" valueNum={agg?.oee} value={!hydrated || loading ? "…" : pct(agg?.oee)} subtitle="A × P × Q" />
-            <Link href={`/dashboard/oee?${rangeQS}`} aria-label="Ver detalle de OEE" className="absolute inset-0 rounded-2xl" />
-            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
-          </div>
-          <div className="relative group">
-            <KpiCard title="Disponibilidad" valueNum={agg?.availability} value={!hydrated || loading ? "…" : pct(agg?.availability)} />
-            <Link href={`/dashboard/availability?${rangeQS}`} aria-label="Ver detalle de Disponibilidad" className="absolute inset-0 rounded-2xl" />
-            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
-          </div>
-          <div className="relative group">
-            <KpiCard title="Rendimiento" valueNum={agg?.performance} value={!hydrated || loading ? "…" : pct(agg?.performance)} />
-            <Link href={`/dashboard/performance?${rangeQS}`} aria-label="Ver detalle de Rendimiento" className="absolute inset-0 rounded-2xl" />
-            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
-          </div>
-          <div className="relative group">
-            <KpiCard title="Calidad" valueNum={agg?.quality} value={!hydrated || loading ? "…" : pct(agg?.quality)} />
-            <Link href={`/dashboard/quality?${rangeQS}`} aria-label="Ver detalle de Calidad" className="absolute inset-0 rounded-2xl" />
-            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
-          </div>
+        {/* OEE HERO con A/P/Q adentro (clicables) */}
+        <div className="mb-8">
+          <OeeHero oee={agg?.oee} loading={!hydrated || loading}>
+            <KpiCardLink
+              title="Disponibilidad"
+              valueNum={agg?.availability}
+              value={!hydrated || loading ? "…" : pct(agg?.availability)}
+              href={`/dashboard/availability?${rangeQS}`}
+            />
+            <KpiCardLink
+              title="Rendimiento"
+              valueNum={agg?.performance}
+              value={!hydrated || loading ? "…" : pct(agg?.performance)}
+              href={`/dashboard/performance?${rangeQS}`}
+            />
+            <KpiCardLink
+              title="Calidad"
+              valueNum={agg?.quality}
+              value={!hydrated || loading ? "…" : pct(agg?.quality)}
+              href={`/dashboard/quality?${rangeQS}`}
+            />
+          </OeeHero>
         </div>
 
         {err && <div className="mb-6 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-rose-200">{err}</div>}
