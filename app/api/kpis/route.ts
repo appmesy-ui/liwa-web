@@ -54,7 +54,9 @@ export async function GET(req: NextRequest) {
     const fromISO =
       searchParams.get("from") ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const step = (searchParams.get("step") ?? "all") as "all" | "kpis" | "series";
-    const lineFilter = searchParams.get("line"); // filtra por nombre/código de línea
+    const lineFilter = searchParams.get("line");       // filtra por nombre/código de línea (exacto)
+    const orgId = searchParams.get("org_id");          // NUEVO: filtrar por organización
+    const plantId = searchParams.get("plant_id");      // NUEVO: filtrar por planta
 
     // Duración y bucket
     const fromMs = new Date(fromISO).getTime();
@@ -80,12 +82,18 @@ export async function GET(req: NextRequest) {
 
     // Buscar shifts que se SOLAPAN con [from, to)
     const findShiftIds = async (from: string, to: string) => {
-      const { data, error } = await admin
+      let q = admin
         .from("v_shift_instances_resolved")
         .select("shift_instance_id, starts_at, ends_at")
         .lt("starts_at", to)
         .gt("ends_at", from);
+
+      // Nota: si tu vista de shifts incluye org/plant, puedes añadir aquí los eq(...)
+      // q = q.eq("org_id", orgId!).eq("plant_id", plantId!)
+
+      const { data, error } = await q;
       if (error) throw error;
+
       const ids = (data ?? []).map((r: any) => r.shift_instance_id as string);
       const timeByShift = new Map<string, { start: string; end: string }>();
       for (const r of data ?? []) {
@@ -114,13 +122,13 @@ export async function GET(req: NextRequest) {
     // Nombres de líneas
     const fetchLineNames = async (lineIds: string[]) => {
       if (!lineIds.length) return new Map<string, string | null>();
-      const { data, error } = await admin
-        .from("lines")
-        .select("id, name")
-        .in("id", Array.from(new Set(lineIds)));
+      let q = admin.from("lines").select("id, name").in("id", Array.from(new Set(lineIds)));
+      // Si quieres acotar por planta aquí también, descomenta y ajusta según columnas:
+      // if (plantId) q = q.eq("plant_id", plantId);
+      const { data, error } = await q;
       if (error) throw error;
       const map = new Map<string, string | null>();
-      for (const l of data ?? []) map.set((l as any).id, (l as any).name ?? null);
+      for (const l of (data ?? []) as any[]) map.set(l.id, l.name ?? null);
       return map;
     };
 
@@ -161,12 +169,16 @@ export async function GET(req: NextRequest) {
 
     // ====== Ventana actual ======
     const { ids: nowShiftIds, timeByShift: nowTimes } = await findShiftIds(fromISO, toISO);
-    const nowRows = await fetchOeeByShifts(nowShiftIds);
+    let nowRows = await fetchOeeByShifts(nowShiftIds);
+
+    // ✅ Filtro por planta (y opcionalmente por org si tu vista lo expone)
+    if (plantId) nowRows = nowRows.filter((r) => (r.plant_id ?? null) === plantId);
+
     const nowAgg = aggregateByLine(nowRows);
 
     // Si no hay datos, devolvemos vacío pero con pending real
     if (nowAgg.size === 0) {
-      const pending = await countPending(admin as any, fromISO, toISO, lineFilter);
+      const pending = await countPending(admin as any, fromISO, toISO, lineFilter, orgId, plantId);
       const payload: any = { ok: true, pending, rows: [], series: [] };
       if (step === "kpis") delete payload.series;
       if (step === "series") delete payload.rows;
@@ -175,7 +187,8 @@ export async function GET(req: NextRequest) {
 
     // ====== Ventana anterior ======
     const { ids: prevShiftIds } = await findShiftIds(prevFromISO, prevToISO);
-    const prevRows = await fetchOeeByShifts(prevShiftIds);
+    let prevRows = await fetchOeeByShifts(prevShiftIds);
+    if (plantId) prevRows = prevRows.filter((r) => (r.plant_id ?? null) === plantId);
     const prevAgg = aggregateByLine(prevRows);
 
     // ====== Nombres de líneas ======
@@ -249,11 +262,11 @@ export async function GET(req: NextRequest) {
       rows = rows.filter((x) => (x.line_code ?? "").toUpperCase() === needle);
     }
 
-    // Orden por OEE desc
+    // Orden por OEE desc (el front ordena por availability, no afecta)
     rows.sort((a, b) => (b.oee ?? 0) - (a.oee ?? 0));
 
-    // Paros sin clasificar
-    const pending = await countPending(admin as any, fromISO, toISO, lineFilter);
+    // Paros sin clasificar (con filtros de org/planta)
+    const pending = await countPending(admin as any, fromISO, toISO, lineFilter, orgId, plantId);
 
     // ====== Respuesta ======
     const payload: any = { ok: true, pending };
@@ -275,14 +288,23 @@ async function countPending(
   admin: any,
   fromISO: string,
   toISO: string,
-  lineFilter: string | null
+  lineFilter: string | null,
+  orgId: string | null,
+  plantId: string | null
 ): Promise<number> {
   // Base común de filtros (sin línea)
-  const baseFilters = (q: any) =>
-    q
+  const baseFilters = (q: any) => {
+    let qq = q
       .eq("is_pending", true)
       .lt("started_at", toISO)
       .or(`ended_at.is.null,ended_at.gte.${fromISO}`);
+
+    // ✅ aplicar org/planta si vienen
+    if (orgId) qq = qq.eq("org_id", orgId);
+    if (plantId) qq = qq.eq("plant_id", plantId);
+
+    return qq;
+  };
 
   if (!lineFilter) {
     const { count, error } = await baseFilters(
@@ -312,3 +334,4 @@ async function countPending(
     return count ?? 0;
   }
 }
+

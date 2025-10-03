@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import clsx from "clsx";
 
-type Level = "l1" | "l2" | "l3";
+type Level = "l1" | "l2";                // ← solo 2 niveles
 type ParetoMetric = "minutes" | "count";
 type PlannedMode = "all" | "only" | "exclude";
 
@@ -20,28 +20,23 @@ type ParetoRow = {
   pct_acc: number;
 };
 
-type ParetoResp = {
-  ok: true;
-  rows: ParetoRow[];
-  meta: any;
-} | { ok: false; error: string };
+type ParetoResp = { ok: true; rows: ParetoRow[]; meta: any } | { ok: false; error: string };
 
 type LineOption = { id: string; code: string | null; name: string | null; label: string; events: number };
 
-const COLOR_BAR = "rgba(56,189,248,0.85)";   // cyan-400
-const COLOR_LINE = "rgba(99,102,241,0.95)";  // indigo-500
+const COLOR_BAR = "rgba(56,189,248,0.85)";
+const COLOR_LINE = "rgba(99,102,241,0.95)";
 const COLOR_GRID = "rgba(255,255,255,0.12)";
-const COLOR_REF  = "rgba(250,204,21,0.9)";   // amber-400
+const COLOR_REF  = "rgba(250,204,21,0.9)";
 
 export default function ParetoChart({
   from,
   to,
   defaultMetric = "minutes",
   defaultTop = 10,
-  // valores iniciales (opcionales)
   initPlanned = "all",
-  initLineField = "line_code" as "line_id" | "line_code",
-  initLine = "", // code o id según initLineField
+  initLineField = "line_code",
+  initLine = "",
 }: {
   from: string;
   to: string;
@@ -51,32 +46,27 @@ export default function ParetoChart({
   initLineField?: "line_id" | "line_code";
   initLine?: string;
 }) {
-  // Drill
   const [level, setLevel] = useState<Level>("l1");
-  const [parents, setParents] = useState<{ l1: string | null; l2: string | null }>({ l1: null, l2: null });
+  const [parents, setParents] = useState<{ l1: string | null }>({ l1: null });
 
-  // Controles
   const [metric, setMetric] = useState<ParetoMetric>(defaultMetric);
   const [top, setTop] = useState<number>(defaultTop);
   const [planned, setPlanned] = useState<PlannedMode>(initPlanned);
 
-  // Línea
   const [lineField, setLineField] = useState<"line_id" | "line_code">(initLineField);
   const [line, setLine] = useState<string>(initLine);
   const [lines, setLines] = useState<LineOption[]>([]);
   const [loadingLines, setLoadingLines] = useState(false);
 
-  // Data
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<ParetoRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<any>(null);
 
-  // Fetch Pareto
   async function fetchPareto(args: {
     level: Level; metric: ParetoMetric; from: string; to: string;
     planned: PlannedMode; line?: string; line_field?: "line_id" | "line_code";
-    parent_l1?: string; parent_l2?: string; top?: number;
+    parent_l1?: string; top?: number;
   }): Promise<ParetoResp> {
     const url = new URL("/api/pareto-stops", window.location.origin);
     url.searchParams.set("level", args.level);
@@ -88,17 +78,15 @@ export default function ParetoChart({
     url.searchParams.set("percent_base", "total");
     url.searchParams.set("planned", args.planned);
     if (args.parent_l1) url.searchParams.set("parent_l1", args.parent_l1);
-    if (args.parent_l2) url.searchParams.set("parent_l2", args.parent_l2);
     if (args.line) {
       url.searchParams.set("line", args.line);
       url.searchParams.set("line_field", args.line_field || "line_code");
     }
     const res = await fetch(url.toString(), { cache: "no-store" });
-    const data = await res.json();
-    return data;
+    return res.json();
   }
 
-  async function loadData(next?: Partial<{ level: Level; parents: { l1: string | null; l2: string | null } }>) {
+  async function loadData(next?: Partial<{ level: Level; parents: { l1: string | null } }>) {
     setLoading(true); setError(null);
     const lvl = next?.level ?? level;
     const par = next?.parents ?? parents;
@@ -106,7 +94,7 @@ export default function ParetoChart({
     const resp = await fetchPareto({
       level: lvl, metric, from, to, planned,
       line: line || undefined, line_field: lineField,
-      parent_l1: par.l1 ?? undefined, parent_l2: par.l2 ?? undefined, top,
+      parent_l1: par.l1 ?? undefined, top,
     });
 
     if (!("ok" in resp) || !resp.ok) {
@@ -117,14 +105,11 @@ export default function ParetoChart({
     setLoading(false);
   }
 
-  // Fetch líneas con datos
   async function loadLines() {
     setLoadingLines(true);
     try {
       const qs = new URLSearchParams({
-        from, to,
-        only_classified: "true",
-        planned,
+        from, to, only_classified: "true", planned,
       }).toString();
       const res = await fetch(`/api/lines?${qs}`, { cache: "no-store" });
       const data = await res.json();
@@ -134,45 +119,33 @@ export default function ParetoChart({
         label: x.label, events: x.events ?? 0,
       }));
       setLines(opts);
-      // Si no hay línea seleccionada, no forzamos nada: se queda "Total planta"
-    } catch (e) {
-      console.error(e); setLines([]);
+    } catch {
+      setLines([]);
     } finally {
       setLoadingLines(false);
     }
   }
 
-  // Inicial
   useEffect(() => { loadData(); }, []);
-  // Cambios de filtros → recarga
   useEffect(() => { loadData(); }, [metric, top, planned, from, to, line, lineField]);
-  // Cargar líneas cuando cambie planned / rango
   useEffect(() => { loadLines(); }, [planned, from, to]);
 
-  // Drill
   function onBarClick(entry: ParetoRow) {
     if (level === "l1") {
-      const np = { l1: entry.name, l2: null as string | null };
+      const np = { l1: entry.name };
       setParents(np); setLevel("l2"); loadData({ level: "l2", parents: np });
-    } else if (level === "l2") {
-      const np = { l1: parents.l1, l2: entry.name };
-      setParents(np); setLevel("l3"); loadData({ level: "l3", parents: np });
     }
   }
   function goUp() {
-    if (level === "l3") {
-      const np = { l1: parents.l1, l2: null as string | null };
-      setLevel("l2"); setParents(np); loadData({ level: "l2", parents: np });
-    } else if (level === "l2") {
-      const np = { l1: null as string | null, l2: null as string | null };
+    if (level === "l2") {
+      const np = { l1: null as string | null };
       setLevel("l1"); setParents(np); loadData({ level: "l1", parents: np });
     }
   }
 
   const title = useMemo(() => {
-    if (level === "l1") return "Pareto L1 — Familias";
-    if (level === "l2") return `Pareto L2 — Motivos (${parents.l1 ?? "-"})`;
-    return `Pareto L3 — Causas (${parents.l1 ?? "-"} › ${parents.l2 ?? "-"})`;
+    if (level === "l1") return "Pareto L1 — Motivos (N2)";
+    return `Pareto L2 — Causas (N3) · ${parents.l1 ?? "-"}`;
   }, [level, parents]);
 
   const chartData = rows.map((r) => ({
@@ -185,26 +158,36 @@ export default function ParetoChart({
     <div className="flex flex-col gap-4">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Drill */}
         <div className="flex items-center gap-2 text-sm">
           <span className="opacity-70">Drill:</span>
           <div className="flex items-center gap-1">
-            <button className={clsx("px-2 py-1 rounded-md", level === "l1" ? "bg-white/10" : "bg-white/5 hover:bg-white/10")} onClick={() => { setLevel("l1"); setParents({ l1: null, l2: null }); loadData({ level: "l1", parents: { l1: null, l2: null } }); }}>L1</button>
+            <button
+              className={clsx("px-2 py-1 rounded-md", level === "l1" ? "bg-white/10" : "bg-white/5 hover:bg-white/10")}
+              onClick={() => { setLevel("l1"); setParents({ l1: null }); loadData({ level: "l1", parents: { l1: null } }); }}
+            >
+              L1
+            </button>
             <span>›</span>
-            <button className={clsx("px-2 py-1 rounded-md", level === "l2" ? "bg-white/10" : "bg-white/5 hover:bg-white/10")} onClick={() => parents.l1 && (setLevel("l2"), loadData({ level: "l2" }))} disabled={!parents.l1}>L2</button>
-            <span>›</span>
-            <span className={clsx("px-2 py-1 rounded-md", level === "l3" ? "bg-white/10" : "bg-white/5")}>L3</span>
+            <button
+              className={clsx("px-2 py-1 rounded-md", level === "l2" ? "bg-white/10" : "bg-white/5 hover:bg-white/10")}
+              onClick={() => parents.l1 && (setLevel("l2"), loadData({ level: "l2" }))}
+              disabled={!parents.l1}
+              title={parents.l1 ? "Ver N3" : "Selecciona N2"}
+            >
+              L2
+            </button>
           </div>
           {level !== "l1" && (
-            <button onClick={goUp} className="ml-2 rounded-md border border-white/10 px-2 py-1 text-xs hover:bg-white/10">Subir nivel</button>
+            <button onClick={goUp} className="ml-2 rounded-md border border-white/10 px-2 py-1 text-xs hover:bg-white/10">
+              Subir nivel
+            </button>
           )}
           <div className="ml-3 text-xs opacity-80">
-            {parents.l1 ? <>L1: <b>{parents.l1}</b></> : "L1: —"}
-            {parents.l2 ? <> · L2: <b>{parents.l2}</b></> : null}
+            {parents.l1 ? <>N2: <b>{parents.l1}</b></> : "N2: —"}
           </div>
         </div>
 
-        {/* Controles mínimos: Métrica, TOP, Tipo, Línea */}
+        {/* Controles */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-white/10 overflow-hidden text-xs">
             <button className={clsx("px-3 py-1.5", metric === "minutes" ? "bg-white/10" : "bg-transparent")} onClick={() => setMetric("minutes")}>Minutos</button>
@@ -217,7 +200,6 @@ export default function ParetoChart({
             </select>
           </label>
 
-          {/* Tipo (planificados) */}
           <select value={planned} onChange={(e) => setPlanned(e.target.value as PlannedMode)} className="rounded-md bg-transparent border border-white/10 px-2 py-1 text-xs" title="Tipo">
             <option value="all">Todos</option>
             <option value="only">Solo planificados</option>
@@ -258,17 +240,14 @@ export default function ParetoChart({
         </div>
       </div>
 
-      {/* Título */}
       <div className="text-sm opacity-80">{title}</div>
 
-      {/* Estado */}
       {loading && <div className="text-xs opacity-60">Cargando…</div>}
       {error && <div className="text-xs text-red-300">Error: {error}</div>}
       {!loading && !error && rows.length === 0 && (
         <div className="text-xs opacity-60">Sin datos para los filtros seleccionados.</div>
       )}
 
-      {/* Gráfico */}
       {!loading && !error && rows.length > 0 && (
         <div className="h-[360px] w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -289,10 +268,10 @@ export default function ParetoChart({
                 dataKey="value"
                 name={metric === "minutes" ? "Minutos" : "Ocurrencias"}
                 fill={COLOR_BAR}
-                className={level !== "l3" ? "cursor-pointer" : "cursor-default"}
+                className={level !== "l2" ? "cursor-pointer" : "cursor-default"}
                 onClick={(d) => {
                   const payload = (d as any)?.payload as ParetoRow | undefined;
-                  if (!payload || level === "l3") return;
+                  if (!payload || level === "l2") return;
                   onBarClick(payload);
                 }}
               />
@@ -303,7 +282,6 @@ export default function ParetoChart({
         </div>
       )}
 
-      {/* Tabla */}
       {!loading && !error && rows.length > 0 && (
         <div className="mt-2 overflow-auto rounded-xl border border-white/10">
           <table className="w-full text-sm">
@@ -331,7 +309,6 @@ export default function ParetoChart({
         </div>
       )}
 
-      {/* Meta */}
       {meta && (
         <div className="text-[11px] opacity-70">
           Tipo: {planned === "all" ? "Todos" : planned === "only" ? "Solo planificados" : "Excluir planificados"} ·
