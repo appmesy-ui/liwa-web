@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import AiDiscoButton from "../components/AiDiscoButton";
+import AiDiscoButton from "./AiDiscoButton";
 
 /* Botón Cerrar sesión */
 function SignOutButton({ className = "" }: { className?: string }) {
@@ -152,7 +152,8 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
                 Configuración
               </a>
               <div className="ml-1">
-                <AiDiscoButton title="IA" className="h-8 w-8" />
+                {/* Sin prop title, solo clase */}
+                <AiDiscoButton className="h-8 w-8" />
               </div>
             </nav>
           </div>
@@ -178,7 +179,7 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 hover:bg-slate-900/60"
                 aria-label="Cerrar menú"
               >
-                <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
+                <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
                   <path
                     fill="currentColor"
                     d="M6.225 4.811 4.811 6.225 9.586 11l-4.775 4.775 1.414 1.414L11 12.414l4.775 4.775 1.414-1.414L12.414 11l4.775-4.775-1.414-1.414L11 9.586z"
@@ -217,7 +218,8 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
               </a>
 
               <div className="mt-2 px-2">
-                <AiDiscoButton title="IA" className="h-9 w-9" />
+                {/* Sin prop title */}
+                <AiDiscoButton className="h-9 w-9" />
               </div>
 
               <div className="mt-4 border-t border-slate-800 pt-3">
@@ -243,3 +245,4 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
     </>
   );
 }
+
