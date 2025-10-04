@@ -38,6 +38,8 @@ type OeeRow = {
   shift_instance_id: string;
 };
 
+type LineRow = { id: string; name: string | null; code: string | null };
+
 export async function GET(req: NextRequest) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -74,45 +76,40 @@ export async function GET(req: NextRequest) {
 
     // ====== Resolver line_id por nombre/código ======
     async function resolveLine() {
-      // Intento por nombre (ilike exacto o contiene)
       const needle = lineParam;
-      let q = admin.from("lines").select("id,name,code").limit(1);
 
-      // 1) match exacto por nombre (case-insensitive)
-      let { data, error } = await q.ilike("name", needle);
-      if (error) {
-        // si 'code' no existe en tu esquema, ignoramos ese campo
-        const { data: d2, error: e2 } = await admin.from("lines").select("id,name").ilike("name", needle).limit(1);
+      // 1) nombre exacto (case-insensitive)
+      let { data, error } = await admin
+        .from("lines")
+        .select("id,name,code")
+        .ilike("name", needle)
+        .limit(1) as unknown as { data: LineRow[] | null; error: any };
+      if (error) throw error;
+
+      // 2) contiene en nombre
+      if (!data?.[0]) {
+        const { data: d2, error: e2 } = await admin
+          .from("lines")
+          .select("id,name,code")
+          .ilike("name", `%${needle}%`)
+          .limit(1) as unknown as { data: LineRow[] | null; error: any };
         if (e2) throw e2;
         data = d2;
       }
 
-      // 2) si no hay, match contiene por nombre
+      // 3) por código
       if (!data?.[0]) {
-        const { data: d3 } = await admin
+        const { data: d3, error: e3 } = await admin
           .from("lines")
           .select("id,name,code")
-          .ilike("name", `%${needle}%`)
-          .limit(1);
-        if (d3?.[0]) data = d3;
+          .ilike("code", needle)
+          .limit(1) as unknown as { data: LineRow[] | null; error: any };
+        if (e3) throw e3;
+        data = d3;
       }
 
-      // 3) si no hay, intentar por 'code' si existe
-      if (!data?.[0]) {
-        try {
-          const { data: d4 } = await admin
-            .from("lines")
-            .select("id,name,code")
-            .ilike("code", needle)
-            .limit(1);
-          if (d4?.[0]) data = d4;
-        } catch {
-          /* la columna code podría no existir; ignorar */
-        }
-      }
-
-      const line = data?.[0] as any | undefined;
-      return line ? ({ id: line.id as string, label: (line.name || line.code || needle) as string }) : null;
+      const line = data?.[0];
+      return line ? ({ id: line.id, label: (line.name || line.code || needle) as string }) : null;
     }
 
     const line = await resolveLine();
@@ -137,8 +134,8 @@ export async function GET(req: NextRequest) {
       .select("shift_instance_id, starts_at, ends_at")
       .lt("starts_at", toISO)
       .gt("ends_at", fromISO);
-
     if (shiftsErr) throw shiftsErr;
+
     const shiftIds = (shifts || []).map((s: any) => s.shift_instance_id as string);
     if (shiftIds.length === 0) {
       return NextResponse.json({ ok: true, data: detail });
@@ -151,13 +148,12 @@ export async function GET(req: NextRequest) {
       .eq("line_id", line.id)
       .in("shift_instance_id", shiftIds)
       .limit(50000);
-
     if (oeeErr) throw oeeErr;
 
     // Filtro por planta si vino
     const rows = (oeeRows || []).filter((r: any) => (plantId ? r.plant_id === plantId : true)) as OeeRow[];
 
-    // Agregado (por consistencia con /api/kpis) — hoy ponderamos por plan; revisaremos ponderación por runtime más adelante
+    // Agregado (ponderado por plan)
     let totalPlan = 0;
     let sumPerf = 0;
     let sumAvailXPlan = 0;
@@ -166,18 +162,16 @@ export async function GET(req: NextRequest) {
       if (!w) continue;
       totalPlan += w;
       sumPerf += Number(r.performance || 0) * w;
-      sumAvailXPlan += Number(r.availability || 0) * w; // runtime aproximado
+      sumAvailXPlan += Number(r.availability || 0) * w; // runtime aprox
     }
 
     if (totalPlan > 0) {
       detail.performance = sumPerf / totalPlan;
       detail.planned_s = totalPlan;
-      detail.runtime_s = sumAvailXPlan; // aprox. operating time
+      detail.runtime_s = sumAvailXPlan;
     }
 
     // ====== Intento traer segmentos reales (si tienes vista/tabla) ======
-    // Probamos con una vista "v_speed_segments" y luego con una tabla "speed_segments".
-    // Si no existen, devolveremos [], y ya tendrás el endpoint listo para enchufar.
     async function tryFetchSegments(viewOrTable: string) {
       try {
         const sel =
@@ -189,7 +183,6 @@ export async function GET(req: NextRequest) {
           .order("started_at", { ascending: false })
           .limit(segLimit);
 
-        // Filtros opcionales si tu vista los expone:
         if (orgId) q = (q as any).eq("org_id", orgId);
         if (plantId) q = (q as any).eq("plant_id", plantId);
 
@@ -200,21 +193,24 @@ export async function GET(req: NextRequest) {
           id: String(s.id),
           started_at: s.started_at,
           ended_at: s.ended_at,
-          duration_s: Number(s.duration_s || Math.max(0, (new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000)),
-          ideal_rate_u_min: Number(s.ideal_rate_u_min || 0),
-          actual_rate_u_min: Number(s.actual_rate_u_min || 0),
+          duration_s: Number(
+            s.duration_s ??
+              Math.max(0, (new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000)
+          ),
+          ideal_rate_u_min: Number(s.ideal_rate_u_min ?? 0),
+          actual_rate_u_min: Number(s.actual_rate_u_min ?? 0),
           sku: s.sku ?? null,
           notes: s.notes ?? null,
         }));
         return mapped;
       } catch {
-        return null; // la vista/tabla puede no existir; probamos la siguiente
+        return null; // la vista/tabla puede no existir
       }
     }
 
     let segments: SpeedSegment[] | null = await tryFetchSegments("v_speed_segments");
     if (!segments) segments = await tryFetchSegments("speed_segments");
-    if (!segments) segments = []; // no existe ninguna ⇒ devolvemos vacío
+    if (!segments) segments = [];
 
     detail.speed_segments = segments;
 
@@ -227,3 +223,4 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
