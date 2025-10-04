@@ -5,6 +5,8 @@ export const revalidate = false;
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import AppHeader from "../components/AppHeader";
+import { cookies } from "next/headers";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 
 export const metadata: Metadata = {
   title: "LIWA",
@@ -22,11 +24,21 @@ export const viewport: Viewport = {
   themeColor: "#0ea5b7",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // ✅ Solo mostramos el header si hay sesión
+  const supabase = createServerComponentClient({ cookies });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
   return (
     <html lang="es" className="h-full bg-slate-950">
       <body className="min-h-screen h-full bg-slate-950 text-slate-100 antialiased">
-        <AppHeader />
+        {session ? <AppHeader /> : null}
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       </body>
     </html>

@@ -19,7 +19,7 @@ type RowUI = {
   units_total?: number | null;
   units_good?: number | null;
   units_scrap?: number | null;
-  units_rework?: number | null;
+  units_rework?: number | null; // no lo usamos en UI
 };
 
 type KpisResp =
@@ -31,7 +31,7 @@ type DefectRow = {
   defect_code: string;
   defect_name: string;
   category?: string | null;
-  units_defective?: number | null; // total piezas con ese defecto (scrap+rework)
+  units_defective?: number | null;
   units_scrap?: number | null;
   units_rework?: number | null;
   station?: string | null;
@@ -74,18 +74,15 @@ function fmtDuration(from?: string | null, to?: string | null) {
 const C = {
   good: "#10B981",    // emerald-500
   scrap: "#F43F5E",   // rose-500
-  rework: "#F59E0B",  // amber-500
-  goal: "#22C55E",    // emerald-400
   cardBase: "rounded-2xl border p-4 shadow-sm",
   cardSkin: "bg-white/95 border-slate-200 dark:bg-slate-900 dark:border-slate-700",
 };
 
 /* =============== Primitives =============== */
-function Chip({ text, tone = "rose" }: { text: string; tone?: "rose" | "emerald" | "amber" | "slate" }) {
+function Chip({ text, tone = "rose" }: { text: string; tone?: "rose" | "emerald" | "slate" }) {
   const map: Record<string, { bg: string; fg: string }> = {
     rose: { bg: "bg-rose-500/10", fg: "text-rose-300" },
     emerald: { bg: "bg-emerald-500/10", fg: "text-emerald-300" },
-    amber: { bg: "bg-amber-500/10", fg: "text-amber-300" },
     slate: { bg: "bg-slate-500/10", fg: "text-slate-300" },
   };
   const c = map[tone];
@@ -109,28 +106,6 @@ function BigKpi({ label, value, sub, chip }:{
         {value}
       </div>
       {sub ? <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{sub}</div> : null}
-    </div>
-  );
-}
-
-function BulletChart({ pct, goalPct = 0.01, tooltip }:{ pct: number; goalPct?: number; tooltip?: string }) {
-  const v = Math.max(0, Math.min(1, pct));
-  const g = Math.max(0, Math.min(1, goalPct));
-  return (
-    <div className={`${C.cardBase} ${C.cardSkin}`}>
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-sm text-slate-600 dark:text-slate-300">Progreso hacia objetivo</div>
-        <div className="text-xs text-slate-500 dark:text-slate-400">Objetivo ≤ {pctTxt(g)}</div>
-      </div>
-      <div className="relative h-5 rounded-full bg-slate-200/70 dark:bg-slate-800/70 overflow-hidden" title={tooltip}>
-        <div className="absolute inset-y-0 left-0" style={{ width: `${v * 100}%`, backgroundColor: C.scrap }} />
-        <div className="absolute inset-y-0" style={{ left: `calc(${g * 100}% - 1px)` }}>
-          <div className="h-full w-0.5" style={{ backgroundColor: C.goal }} />
-        </div>
-      </div>
-      <div className="mt-2 flex justify-between text-xs text-slate-500 dark:text-slate-400">
-        <span>0%</span><span>100%</span>
-      </div>
     </div>
   );
 }
@@ -181,40 +156,37 @@ export default function QualityByLinePage({ params }: { params: { line: string }
 
   /* ---- Derivaciones KPIs ---- */
   const {
-    hasUnits, unitsTotal, unitsGood, unitsScrap, unitsRework,
+    hasUnits, unitsTotal, unitsGood, unitsScrap,
     qSafe, scrapPct, analyzedLabel, summary,
   } = useMemo(() => {
     const analyzedLabel = fmtDuration(from, to);
 
     if (!row) {
       return {
-        hasUnits: false, unitsTotal: 0, unitsGood: 0, unitsScrap: 0, unitsRework: 0,
+        hasUnits: false, unitsTotal: 0, unitsGood: 0, unitsScrap: 0,
         qSafe: null as number | null, scrapPct: null as number | null, analyzedLabel,
         summary: "Sin datos de calidad en el rango seleccionado.",
       };
     }
 
-    // quality válido
     const qValid = typeof row.quality === "number" && isFinite(row.quality as number);
     const qSafe = qValid ? clamp01(row.quality as number) : null;
     const scrapPct = qSafe == null ? null : clamp01(1 - qSafe);
 
-    // unidades
     const t = Math.max(0, Math.floor(row.units_total ?? 0));
     let g = Math.max(0, Math.floor(row.units_good ?? 0));
     let s = Math.max(0, Math.floor(row.units_scrap ?? 0));
-    const rw = Math.max(0, Math.floor(row.units_rework ?? 0));
-    if (t > 0 && (g + s + rw) > t) s = Math.max(0, t - g - rw);
+    if (t > 0 && (g + s) > t) s = Math.max(0, t - g);
     const hasUnits = t > 0;
 
     const summary = hasUnits
-      ? `Se produjeron ${nf.format(t)} u; ${nf.format(s)} u (${pctTxt(s / t)}) fueron scrap${rw > 0 ? ` y ${nf.format(rw)} u (${pctTxt(rw / t)}) retrabajadas` : ""}. FPY ${pctTxt(g / t)}.`
+      ? `Se produjeron ${nf.format(t)} u; ${nf.format(s)} u (${pctTxt(s / t)}) fueron scrap. FPY ${pctTxt(g / t)}.`
       : qSafe == null
         ? "Sin datos de calidad en el rango seleccionado."
         : `Quality ${pctTxt(qSafe)} · Scrap ${pctTxt(1 - qSafe)}.`;
 
     return {
-      hasUnits, unitsTotal: t, unitsGood: g, unitsScrap: s, unitsRework: rw,
+      hasUnits, unitsTotal: t, unitsGood: g, unitsScrap: s,
       qSafe, scrapPct, analyzedLabel, summary,
     };
   }, [row, from, to]);
@@ -227,7 +199,7 @@ export default function QualityByLinePage({ params }: { params: { line: string }
 
   useEffect(() => {
     let alive = true;
-    if (tab !== "defectos") return; // carga bajo demanda
+    if (tab !== "defectos") return;
     async function run() {
       setLoadingDef(true); setErrDef(null);
       try {
@@ -324,7 +296,7 @@ export default function QualityByLinePage({ params }: { params: { line: string }
       <div className={`${C.cardBase} ${C.cardSkin}`}>
         <div className="mb-2 text-sm text-slate-600 dark:text-slate-300">Pareto de defectos (Top {top.length})</div>
         <div className="space-y-3">
-          {top.map((d, i) => (
+          {top.map((d) => (
             <div key={d.code} className="grid grid-cols-12 items-center gap-3">
               <div className="col-span-5 md:col-span-4">
                 <div className="font-medium text-slate-200">{d.name}</div>
@@ -358,9 +330,7 @@ export default function QualityByLinePage({ params }: { params: { line: string }
   }
 
   function DefectsTable() {
-    if (!defRows || defRows.length === 0) {
-      return null;
-    }
+    if (!defRows || defRows.length === 0) return null;
     return (
       <div className={`${C.cardBase} ${C.cardSkin}`}>
         <div className="mb-2 text-sm text-slate-600 dark:text-slate-300">Detalle de defectos</div>
@@ -426,8 +396,8 @@ export default function QualityByLinePage({ params }: { params: { line: string }
       {/* === TAB RESUMEN === */}
       {tab === "resumen" && (
         <>
-          {/* Cards */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+          {/* Cards compactas (sin retrabajo) */}
+          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <BigKpi
               label="Producción total"
               value={hasUnits ? nf.format(unitsTotal) : "—"}
@@ -445,12 +415,6 @@ export default function QualityByLinePage({ params }: { params: { line: string }
               chip={scrapPct != null ? <Chip text={hasUnits ? pctTxt(unitsScrap / Math.max(1, unitsTotal)) : pctTxt(scrapPct)} tone="rose" /> : undefined}
             />
             <BigKpi
-              label="Retrabajo"
-              value={hasUnits ? nf.format(unitsRework) : "—"}
-              sub={hasUnits ? `(${pctTxt(unitsRework / Math.max(1, unitsTotal))})` : "no disponible"}
-              chip={hasUnits && unitsRework > 0 ? <Chip text={pctTxt(unitsRework / Math.max(1, unitsTotal))} tone="amber" /> : undefined}
-            />
-            <BigKpi
               label="FPY"
               value={hasUnits ? pctTxt(unitsGood / Math.max(1, unitsTotal)) : (qSafe == null ? "—" : pctTxt(qSafe))}
               sub="First Pass Yield"
@@ -458,13 +422,13 @@ export default function QualityByLinePage({ params }: { params: { line: string }
           </section>
 
           {/* Resumen ejecutivo */}
-          <p className="text-sm text-slate-300 border-l-4 border-emerald-500 pl-3 mb-4">
+          <p className="text-sm text-slate-300 border-l-4 border-emerald-500 pl-3 mb-6">
             {summary} <span className="text-slate-400">({analyzedLabel})</span>
           </p>
 
-          {/* Panel Scrap + objetivo */}
+          {/* Mini panel Scrap (objetivo inline) */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-            <div className={`${C.cardBase} ${C.cardSkin}`}>
+            <div className={`${C.cardBase} ${C.cardSkin} lg:col-span-1`}>
               <div className="flex items-start justify-between">
                 <div className="text-sm text-slate-700 dark:text-slate-300">Scrap (línea)</div>
                 {scrapPct != null && <Chip text={hasUnits ? pctTxt(unitsScrap / Math.max(1, unitsTotal)) : pctTxt(scrapPct)} tone="rose" />}
@@ -481,21 +445,17 @@ export default function QualityByLinePage({ params }: { params: { line: string }
             </div>
 
             <div className="lg:col-span-2">
-              {scrapPct == null ? (
-                <div className={`${C.cardBase} ${C.cardSkin} text-sm text-slate-600 dark:text-slate-400`}>
-                  Sin datos de calidad en el rango seleccionado.
+              <div className={`${C.cardBase} ${C.cardSkin} text-sm text-slate-600 dark:text-slate-400`}>
+                <div className="flex items-center justify-between">
+                  <span>Notas</span>
+                  <span className="text-xs text-slate-400">Rango: {analyzedLabel}</span>
                 </div>
-              ) : (
-                <BulletChart
-                  pct={hasUnits ? (unitsScrap / Math.max(1, unitsTotal)) : scrapPct}
-                  goalPct={0.01}
-                  tooltip={
-                    hasUnits
-                      ? `Scrap ${pctTxt(unitsScrap / Math.max(1, unitsTotal))} · ${nf.format(unitsScrap)} u`
-                      : `Scrap ${pctTxt(scrapPct)}`
-                  }
-                />
-              )}
+                <ul className="mt-2 list-disc pl-5 space-y-1">
+                  <li>Scrap objetivo ≤ 1.00%.</li>
+                  <li>FPY se calcula como buenas / total.</li>
+                  <li>Los defectos se muestran en la pestaña “Defectos”.</li>
+                </ul>
+              </div>
             </div>
           </section>
 
@@ -511,7 +471,6 @@ export default function QualityByLinePage({ params }: { params: { line: string }
       {/* === TAB DEFECTOS === */}
       {tab === "defectos" && (
         <>
-          {/* Cards defectos */}
           <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <BigKpi
               label="Defectos (total)"
@@ -519,17 +478,8 @@ export default function QualityByLinePage({ params }: { params: { line: string }
               sub={defectsModel.totUnits > 0 ? `Impacto ${pctTxt(defectsModel.totalDef / defectsModel.totUnits)}` : "sin unidades"}
               chip={<Chip text={defectsModel.totUnits > 0 ? pctTxt(defectsModel.totalDef / defectsModel.totUnits) : "—"} tone="rose" />}
             />
-            <BigKpi
-              label="Scrap por defectos"
-              value={nf.format(defectsModel.totalScrap)}
-              sub={defectsModel.totUnits > 0 ? pctTxt(defectsModel.totalScrap / defectsModel.totUnits) : "sin unidades"}
-            />
-            <BigKpi
-              label="Retrabajo"
-              value={nf.format(defectsModel.totalRework)}
-              sub={defectsModel.totUnits > 0 ? pctTxt(defectsModel.totalRework / defectsModel.totUnits) : "sin unidades"}
-              chip={defectsModel.totalRework > 0 ? <Chip text={pctTxt(defectsModel.totalRework / Math.max(1, defectsModel.totUnits))} tone="amber" /> : undefined}
-            />
+            <BigKpi label="Scrap por defectos" value={nf.format(defectsModel.totalScrap)} sub={defectsModel.totUnits > 0 ? pctTxt(defectsModel.totalScrap / defectsModel.totUnits) : "sin unidades"} />
+            <BigKpi label="Retrabajo" value={nf.format(defectsModel.totalRework)} sub={defectsModel.totUnits > 0 ? pctTxt(defectsModel.totalRework / defectsModel.totUnits) : "sin unidades"} />
             <BigKpi
               label="Top defecto"
               value={defectsModel.top[0]?.name ?? "—"}
@@ -537,7 +487,6 @@ export default function QualityByLinePage({ params }: { params: { line: string }
             />
           </section>
 
-          {/* Pareto + Tabla */}
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Pareto />
             <DefectsTable />
@@ -554,3 +503,4 @@ export default function QualityByLinePage({ params }: { params: { line: string }
     </main>
   );
 }
+

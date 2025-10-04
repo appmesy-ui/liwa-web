@@ -4,15 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Gauge, Clock4, Rocket, ArrowLeft } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-} from "recharts";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +13,8 @@ type SpeedSegment = {
   started_at: string;
   ended_at: string;
   duration_s: number;
-  ideal_rate_u_min: number | null;
-  actual_rate_u_min: number | null;
+  ideal_rate_u_min: number;
+  actual_rate_u_min: number;
   sku?: string | null;
   notes?: string | null;
 };
@@ -84,7 +75,7 @@ export default function PerformanceByLinePage({
     return s ? `?${s}` : "";
   }, [from, to, org_id, plant_id]);
 
-  const lineParam = decodeURIComponent(params.line || "");
+  const lineParam = decodeURIComponent(params.line || "").toUpperCase();
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -109,23 +100,22 @@ export default function PerformanceByLinePage({
         setLoading(true);
         setErr(null);
 
-        // 1) KPI base desde /api/kpis (para performance si /api/performance no lo envía)
+        // 1) sacar P de la línea desde /api/kpis (para asegurar el valor)
         const uK = new URL("/api/kpis", window.location.origin);
         if (from) uK.searchParams.set("from", from);
         if (to) uK.searchParams.set("to", to);
         if (org_id) uK.searchParams.set("org_id", org_id);
         if (plant_id) uK.searchParams.set("plant_id", plant_id);
         const rK = await fetch(uK.toString(), { cache: "no-store" });
-        const jK = (await safeJson(rK)) as any;
+        const jK = (await safeJson(rK)) as ApiResp | null;
 
         const row = jK?.ok
-          ? (jK.rows || []).find(
-              (r: any) =>
-                (r.line_code || "").toUpperCase() === lineParam.toUpperCase()
+          ? (jK as any).rows?.find(
+              (r: any) => (r.line_code || "").toUpperCase() === lineParam
             )
           : null;
 
-        // 2) Detalle real desde /api/performance
+        // 2) pedir detalle real
         const u = new URL("/api/performance", window.location.origin);
         u.searchParams.set("line", lineParam);
         if (from) u.searchParams.set("from", from);
@@ -136,8 +126,9 @@ export default function PerformanceByLinePage({
         const res = await fetch(u.toString(), { cache: "no-store" });
         const json = (await safeJson(res)) as ApiResp | null;
 
-        let det = json?.ok ? ((json as any).data as PerfDetail) : null;
+        let det = json?.ok ? (json as any).data as PerfDetail : null;
 
+        // mezcla segura: si el endpoint no trae performance, usa el de /api/kpis
         if (det) {
           if (det.performance == null && row?.performance != null) {
             det = { ...det, performance: row.performance };
@@ -174,57 +165,19 @@ export default function PerformanceByLinePage({
     };
   }, [lineParam, from, to, org_id, plant_id]);
 
-  const segmentsRaw = useMemo(
+  const segments = useMemo(
     () =>
       (detail?.speed_segments || [])
         .slice()
         .sort(
           (a, b) =>
-            new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
+            new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
         ),
     [detail]
   );
 
   const perf = clamp01(detail?.performance ?? null);
   const loss = perf == null ? null : clamp01(1 - perf);
-
-  // ====== Datos para sparkline ======
-  const chartData = useMemo(() => {
-    return segmentsRaw.map((s) => {
-      const label = dtf.format(new Date(s.started_at));
-      const Pseg =
-        s.actual_rate_u_min && s.ideal_rate_u_min && s.ideal_rate_u_min > 0
-          ? Math.min(1, Math.max(0, s.actual_rate_u_min / s.ideal_rate_u_min))
-          : null;
-      return {
-        label,
-        ideal: s.ideal_rate_u_min ?? null,
-        actual: s.actual_rate_u_min ?? null,
-        P: Pseg,
-      };
-    });
-  }, [segmentsRaw]);
-
-  /* ====== Paginación de segmentos ====== */
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10); // 10 / 25 / 50
-
-  useEffect(() => {
-    // si cambia el rango o la línea, volvemos a página 1
-    setPage(1);
-  }, [lineParam, from, to, org_id, plant_id]);
-
-  const total = segmentsRaw.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const startIdx = (safePage - 1) * pageSize;
-  const endIdx = Math.min(total, startIdx + pageSize);
-  const segments = segmentsRaw.slice(startIdx, endIdx);
-
-  function goto(p: number) {
-    const next = Math.min(Math.max(1, p), totalPages);
-    setPage(next);
-  }
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-5 md:px-8 py-6 md:py-8 text-slate-100">
@@ -250,8 +203,14 @@ export default function PerformanceByLinePage({
       </div>
 
       {/* Resumen KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-        <Card title="Performance (P)" value={pct(perf)} hint="Promedio ponderado" icon={<Gauge className="w-4 h-4" />} ring="ring-cyan-400/90" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <Card
+          title="Performance (P)"
+          value={pct(perf)}
+          hint="Promedio ponderado"
+          icon={<Gauge className="w-4 h-4" />}
+          ring="ring-cyan-400/80"
+        />
         <Card title="Pérdida por velocidad" value={pct(loss)} hint="1 − P" />
         <Card title="Tiempo planificado" value={fmtHM(detail?.planned_s)} icon={<Clock4 className="w-4 h-4" />} />
         <Card title="Tiempo efectivo en marcha" value={fmtHM(detail?.runtime_s)} icon={<Rocket className="w-4 h-4" />} />
@@ -267,6 +226,9 @@ export default function PerformanceByLinePage({
       <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)] mb-6">
         <div className="mb-3">
           <h2 className="text-lg font-semibold tracking-tight">Composición</h2>
+          <p className="text-sm text-slate-400">
+            Proporción operada a ritmo ideal vs. gap por velocidad.
+          </p>
         </div>
         <Stack100
           leftLabel="Operado (P)"
@@ -276,109 +238,17 @@ export default function PerformanceByLinePage({
         />
       </div>
 
-      {/* Sparkline ideal vs real */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)] mb-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Ritmo por segmento</h2>
-          <span className="text-sm text-slate-400">
-            {loading ? "Cargando…" : `${total} tramo${total === 1 ? "" : "s"}`}
-          </span>
-        </div>
-
-        {total > 0 ? (
-          <div className="w-full h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={28} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip
-                  formatter={(v: any, n: string) =>
-                    n === "P" ? `${(v * 100).toFixed(1)}%` : `${nf.format(v)} u/min`
-                  }
-                  contentStyle={{
-                    background: "rgba(2,6,23,.92)",
-                    border: "1px solid rgba(255,255,255,.08)",
-                    color: "#e2e8f0",
-                    borderRadius: 10,
-                  }}
-                />
-                <Legend />
-                <Line type="monotone" dataKey="ideal" name="Ideal (u/min)" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="actual" name="Real (u/min)" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="P" name="P seg." dot={false} strokeWidth={1.5} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <div className="text-sm text-slate-400">Sin segmentos en el rango seleccionado.</div>
-        )}
-      </div>
-
-      {/* Segmentos de velocidad (tabla + paginación) */}
+      {/* Segmentos de velocidad */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
-        <div className="flex items-center justify-between mb-3 gap-3">
+        <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold tracking-tight">Segmentos de velocidad</h2>
-
-          {/* Controles de paginación */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-400">Filas:</label>
-            <select
-              value={pageSize}
-              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-              className="bg-slate-900 border border-white/10 rounded-md px-2 py-1 text-xs"
-            >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-            </select>
-
-            <div className="text-xs text-slate-400 tabular-nums">
-              {total === 0 ? "0–0" : `${startIdx + 1}–${endIdx}`} de {total}
-            </div>
-
-            <div className="inline-flex items-center gap-1">
-              <button
-                onClick={() => goto(1)}
-                disabled={safePage === 1}
-                className="rounded-md border border-white/10 px-2 py-1 text-xs disabled:opacity-40 hover:bg-white/5"
-                aria-label="Primera página"
-              >
-                «
-              </button>
-              <button
-                onClick={() => goto(safePage - 1)}
-                disabled={safePage === 1}
-                className="rounded-md border border-white/10 px-2 py-1 text-xs disabled:opacity-40 hover:bg-white/5"
-                aria-label="Anterior"
-              >
-                ‹
-              </button>
-              <span className="px-2 text-xs tabular-nums">
-                {safePage}/{totalPages}
-              </span>
-              <button
-                onClick={() => goto(safePage + 1)}
-                disabled={safePage === totalPages}
-                className="rounded-md border border-white/10 px-2 py-1 text-xs disabled:opacity-40 hover:bg-white/5"
-                aria-label="Siguiente"
-              >
-                ›
-              </button>
-              <button
-                onClick={() => goto(totalPages)}
-                disabled={safePage === totalPages}
-                className="rounded-md border border-white/10 px-2 py-1 text-xs disabled:opacity-40 hover:bg-white/5"
-                aria-label="Última página"
-              >
-                »
-              </button>
-            </div>
+          <div className="text-sm text-slate-400">
+            {loading ? "Cargando…" : `${segments.length} segmento${segments.length === 1 ? "" : "s"}`}
           </div>
         </div>
-
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-950/70 sticky top-0">
+            <thead className="bg-slate-950/70">
               <tr className="text-slate-400 whitespace-nowrap">
                 <th className="text-left py-2 pr-4">Inicio</th>
                 <th className="text-left py-2 px-4">Fin</th>
@@ -396,28 +266,23 @@ export default function PerformanceByLinePage({
                   <td className="py-4 text-slate-400" colSpan={8}>Cargando…</td>
                 </tr>
               )}
-              {!loading && total === 0 && (
+              {!loading && segments.length === 0 && (
                 <tr>
-                  <td className="py-4 text-slate-400" colSpan={8}>Sin segmentos registrados.</td>
+                  <td className="py-4 text-slate-400" colSpan={8}>
+                    Sin segmentos registrados en el rango seleccionado.
+                  </td>
                 </tr>
               )}
               {!loading &&
                 segments.map((s) => {
-                  const gap =
-                    (s.ideal_rate_u_min ?? 0) > 0 && s.actual_rate_u_min != null
-                      ? Math.max(0, (s.ideal_rate_u_min ?? 0) - (s.actual_rate_u_min ?? 0))
-                      : 0;
+                  const gap = Math.max(0, s.ideal_rate_u_min - s.actual_rate_u_min);
                   return (
                     <tr key={s.id} className="border-t border-white/10 hover:bg-white/[0.06] transition-colors">
                       <td className="py-3 pr-4">{dtf.format(new Date(s.started_at))}</td>
                       <td className="py-3 px-4">{dtf.format(new Date(s.ended_at))}</td>
                       <td className="py-3 px-4 text-right">{fmtHM(s.duration_s)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums">
-                        {s.ideal_rate_u_min == null ? "—" : `${nf.format(s.ideal_rate_u_min)} u/min`}
-                      </td>
-                      <td className="py-3 px-4 text-right tabular-nums">
-                        {s.actual_rate_u_min == null ? "—" : `${nf.format(s.actual_rate_u_min)} u/min`}
-                      </td>
+                      <td className="py-3 px-4 text-right tabular-nums">{nf.format(s.ideal_rate_u_min)} u/min</td>
+                      <td className="py-3 px-4 text-right tabular-nums">{nf.format(s.actual_rate_u_min)} u/min</td>
                       <td className="py-3 px-4 text-right tabular-nums">{nf.format(gap)} u/min</td>
                       <td className="py-3 px-4">{s.sku || "—"}</td>
                       <td className="py-3 px-4">{s.notes || "—"}</td>
@@ -502,4 +367,3 @@ function Stack100({
     </div>
   );
 }
-
