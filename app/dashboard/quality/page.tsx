@@ -17,7 +17,7 @@ type RowUI = {
   units_total?: number | null;
   units_good?: number | null;
   units_scrap?: number | null;
-  units_rework?: number | null;
+  units_rework?: number | null; // no lo usamos en el resumen
 };
 
 type ApiResp =
@@ -68,7 +68,8 @@ const C = {
   good: "#10B981",
   scrap: "#F43F5E",
   cardBase: "rounded-2xl border p-4 shadow-sm",
-  cardSkin: "border-white/10 bg-white/[0.04]",
+  // SÓLIDO oscuro para tablets (nada de transparencia)
+  cardSkin: "border-white/10 bg-slate-900",
 };
 
 /* ================== UI Primitives ================== */
@@ -164,6 +165,7 @@ function LinesRanking({
           return (
             <div key={`${r.line}-${i}`} className="flex items-center gap-3">
               <div className="w-6 text-right tabular-nums text-slate-500">{i + 1}</div>
+
               <Link href={href} className="min-w-24 flex-1 group">
                 <div className="flex items-center justify-between">
                   <div className="font-medium text-slate-100 group-hover:underline">
@@ -174,6 +176,15 @@ function LinesRanking({
                   </span>
                 </div>
                 <LineStackBar goodRatio={r.goodRatio} scrapRatio={r.scrapRatio} />
+              </Link>
+
+              {/* Mostrar SIEMPRE en tablet/móvil */}
+              <Link
+                href={href}
+                className="inline-flex rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/5"
+                title="Ver detalle de calidad de esta línea"
+              >
+                Detalle →
               </Link>
             </div>
           );
@@ -249,6 +260,36 @@ export default function QualityPage() {
       }
     }
     const hasUnits = tot > 0;
+
+    const lines = rows
+      .filter((r) => r.line_code)
+      .filter((r) => (r.units_total ?? 0) > 0 || typeof r.quality === "number")
+      .map((r) => {
+        const t = Math.max(0, Math.floor(r.units_total ?? 0));
+        const qRow =
+          typeof r.quality === "number" && isFinite(r.quality as number)
+            ? clamp01(r.quality as number)
+            : 0;
+        let gRatio = qRow, sRatio = 1 - qRow;
+        let gU: number | undefined, sU: number | undefined;
+        if (t > 0) {
+          const g = Math.max(0, Math.floor(r.units_good ?? Math.round(qRow * t)));
+          const s = Math.max(0, Math.floor(r.units_scrap ?? (t - g)));
+          const totRow = Math.max(1, g + s);
+          gRatio = g / totRow; sRatio = s / totRow;
+          gU = g; sU = s;
+        }
+        return {
+          line: r.line_code as string,
+          units_total: t || undefined,
+          units_good: gU,
+          units_scrap: sU,
+          quality: qRow,
+          goodRatio: gRatio,
+          scrapRatio: sRatio,
+        };
+      });
+
     const analyzedLabel = fmtDuration(from, to);
     const summary = hasUnits
       ? `Se produjeron ${nf.format(tot)} u; ${nf.format(scrapU)} u (${pctTxt(scrapU / tot)}) fueron scrap. FPY ${pctTxt(good / tot)}.`
@@ -257,20 +298,22 @@ export default function QualityPage() {
         : `Quality global ${pctTxt(qSafe)}; Scrap ${pctTxt(1 - qSafe)}.`;
 
     return {
-      qSafe, scrapPct, hasUnits, totalUnits: tot, goodUnits: good, scrapUnits: scrapU,
-      linesForRank: rows.map(r => ({
-        line: r.line_code ?? "?",
-        quality: r.quality,
-        goodRatio: r.quality ?? 0,
-        scrapRatio: 1 - (r.quality ?? 0),
-      })),
-      analyzedLabel, summaryLine: summary,
+      qSafe,
+      scrapPct,
+      hasUnits,
+      totalUnits: tot,
+      goodUnits: good,
+      scrapUnits: scrapU,
+      linesForRank: lines,
+      analyzedLabel,
+      summaryLine: summary,
     };
   }, [rows, from, to]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="px-4 py-5 md:px-6 md:py-6 space-y-6">
+        {/* Header */}
         <header className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Quality (Q)</h1>
           <p className="text-sm text-slate-300">
@@ -279,29 +322,47 @@ export default function QualityPage() {
           </p>
         </header>
 
+        {/* KPIs */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <BigKpi label="Producción total" value={hasUnits ? nf.format(totalUnits) : "—"} sub={hasUnits ? "unidades en el rango" : "unidades no disponibles"} />
-          <BigKpi label="Buenas" value={hasUnits ? nf.format(goodUnits) : qSafe == null ? "—" : pctTxt(qSafe)} sub={hasUnits ? `Q = ${pctTxt(goodUnits / Math.max(1, totalUnits))}` : qSafe == null ? "sin datos" : "promedio ponderado"} />
-          <BigKpi label="Scrap" value={hasUnits ? nf.format(scrapUnits) : scrapPct == null ? "—" : pctTxt(scrapPct)} sub={hasUnits ? "rechazo total" : qSafe == null ? "sin datos" : "1 − Q"} chip={scrapPct != null ? <Chip text={pctTxt(hasUnits ? scrapUnits / Math.max(1, totalUnits) : scrapPct)} tone="rose" /> : undefined} />
-          <BigKpi label="FPY" value={hasUnits ? pctTxt(goodUnits / Math.max(1, totalUnits)) : qSafe == null ? "—" : pctTxt(qSafe)} sub="First Pass Yield" />
+          <BigKpi
+            label="Buenas"
+            value={hasUnits ? nf.format(goodUnits) : qSafe == null ? "—" : pctTxt(qSafe)}
+            sub={hasUnits ? `Q = ${pctTxt(goodUnits / Math.max(1, totalUnits))}` : qSafe == null ? "sin datos en el rango" : "promedio ponderado"}
+          />
+          <BigKpi
+            label="Scrap"
+            value={hasUnits ? nf.format(scrapUnits) : scrapPct == null ? "—" : pctTxt(scrapPct)}
+            sub={hasUnits ? "rechazo total" : qSafe == null ? "sin datos" : "1 − Q"}
+            chip={scrapPct != null ? <Chip text={pctTxt(hasUnits ? scrapUnits / Math.max(1, totalUnits) : scrapPct)} tone="rose" /> : undefined}
+          />
+          <BigKpi
+            label="FPY"
+            value={hasUnits ? pctTxt(goodUnits / Math.max(1, totalUnits)) : qSafe == null ? "—" : pctTxt(qSafe)}
+            sub="First Pass Yield"
+          />
         </section>
 
+        {/* Frase ejecutiva */}
         <p className="text-sm text-slate-300 border-l-4 border-emerald-500 pl-3">
           {summaryLine}
         </p>
 
+        {/* Ranking por línea */}
         <section>
           <LinesRanking rows={linesForRank} qs={qs} />
         </section>
 
-        {error && (
+        {/* Estado */}
+        {error ? (
           <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">
             Error: {error}
           </div>
-        )}
-        {loading && <div className="text-sm text-slate-400">Cargando datos…</div>}
+        ) : null}
+        {loading ? <div className="text-sm text-slate-400">Cargando datos…</div> : null}
       </div>
     </div>
   );
 }
+
 
