@@ -24,10 +24,8 @@ function fmtDur(sec?: number | null) {
   const s = Math.trunc(sec as number);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${ss}s`;
-  return `${ss}s`;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m`;
+  return `${m}m`;
 }
 function rangeLabel(from?: string | null, to?: string | null) {
   if (!from || !to) return "rango actual";
@@ -82,7 +80,7 @@ export default function AvailabilityPage() {
         const u = new URL("/api/kpis", window.location.origin);
         if (from) u.searchParams.set("from", from);
         if (to) u.searchParams.set("to", to);
-        u.searchParams.set("step", "all");
+        u.searchParams.set("step", "kpis");
         const res = await fetch(u.toString(), { cache: "no-store" });
         const data: ApiResp = await res.json();
         if (!alive) return;
@@ -99,23 +97,32 @@ export default function AvailabilityPage() {
     return () => { alive = false; };
   }, [from, to]);
 
-  const { aAvg, lossAvg, ranking } = useMemo(() => {
-    let num = 0, den = 0;
+  // Promedio ponderado por plan + totales de horas (criterio KPI únicamente)
+  const { aAvg, plannedTotalSec, unplannedTotalSec, ranking } = useMemo(() => {
+    let num = 0, den = 0, plannedTotal = 0;
     const list: { line: string; a: number }[] = [];
+
     for (const r of rows) {
       const a = typeof r.availability === "number" ? clamp01(r.availability) : null;
+      const plan = Math.max(0, Math.floor(r.planned_runtime_sec ?? 0));
+      plannedTotal += plan;
       if (a != null && r.line_code) {
-        const w = Math.max(1, r.planned_runtime_sec ?? 1);
-        num += a * w; den += w;
+        num += a * plan;
+        den += plan;
         list.push({ line: r.line_code, a });
       }
     }
     const aAvg = den > 0 ? num / den : null;
-    const lossAvg = aAvg == null ? null : 1 - aAvg;
-    return { aAvg, lossAvg, ranking: list.sort((a, b) => b.a - a.a) };
+    const unplanned = aAvg == null ? 0 : Math.max(0, plannedTotal * (1 - aAvg));
+    return {
+      aAvg,
+      plannedTotalSec: plannedTotal,
+      unplannedTotalSec: Math.floor(unplanned),
+      ranking: list.sort((a, b) => b.a - a.a),
+    };
   }, [rows]);
 
-  // ✅ Definición ÚNICA de rangeText
+  // Etiqueta de rango
   const rangeText = rangeLabel(from, to);
 
   /* ===== Resumen de Paros - contadores ===== */
@@ -166,7 +173,7 @@ export default function AvailabilityPage() {
     return () => { alive = false; };
   }, [from, to]);
 
-  /* ===== Resumen de Paros - tabla ===== */
+  /* ===== Resumen de Paros - tabla (paginada) ===== */
   const stateParam = sp.get("state");
   const [stateFilter, setStateFilter] = useState<"all" | "pending" | "classified">(
     stateParam === "pending" || stateParam === "classified" ? (stateParam as any) : "all"
@@ -229,16 +236,31 @@ export default function AvailabilityPage() {
         </p>
       </header>
 
-      {/* KPIs */}
+      {/* KPIs – criterio KPI únicamente (sin sumar eventos) */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        {/* Botón Pareto dentro del card de Availability */}
         <AvailabilityParetoLauncher from={from ?? undefined} to={to ?? undefined}>
-          <Card title="Availability (A)" value={kpiLoading ? "…" : pct(aAvg)} hint="Promedio ponderado" />
+          <Card
+            title="Availability (A)"
+            value={kpiLoading ? "…" : pct(aAvg)}
+            hint="Promedio ponderado por plan"
+          />
         </AvailabilityParetoLauncher>
 
-        <Card title="Pérdida no planificada" value={kpiLoading ? "…" : pct(lossAvg)} hint="1 − A" />
-        <Card title="Líneas consideradas" value={kpiLoading ? "…" : nf.format(ranking.length)} hint="Con datos en el rango" />
-        <Card title="Tiempo analizado" value={rangeText} hint="Según rango seleccionado" />
+        <Card
+          title="Horas planificadas (A)"
+          value={kpiLoading ? "…" : fmtDur(plannedTotalSec)}
+          hint="Suma de horas planificadas de todas las líneas"
+        />
+        <Card
+          title="Horas no planificadas (A)"
+          value={kpiLoading ? "…" : fmtDur(unplannedTotalSec)}
+          hint="(1 − A) × planificadas (criterio KPI)"
+        />
+        <Card
+          title="Líneas consideradas"
+          value={kpiLoading ? "…" : nf.format(rows.length)}
+          hint="Con datos en el rango"
+        />
       </section>
 
       {/* Resumen de Paros */}
@@ -250,10 +272,7 @@ export default function AvailabilityPage() {
             <label className="text-sm text-slate-300">Estado:</label>
             <select
               value={stateFilter}
-              onChange={(e) => {
-                setPage(1);
-                setStateFilter(e.target.value as any);
-              }}
+              onChange={(e) => { setPage(1); setStateFilter(e.target.value as any); }}
               className="rounded-lg bg-transparent border border-white/10 px-2 py-1 text-sm text-slate-200"
             >
               <option value="all">Todos</option>
@@ -264,15 +283,10 @@ export default function AvailabilityPage() {
             <label className="ml-3 text-sm text-slate-300">Filas:</label>
             <select
               value={limit}
-              onChange={(e) => {
-                setPage(1);
-                setLimit(Number(e.target.value));
-              }}
+              onChange={(e) => { setPage(1); setLimit(Number(e.target.value)); }}
               className="rounded-lg bg-transparent border border-white/10 px-2 py-1 text-sm text-slate-200"
             >
-              {[10, 15, 20, 30, 50].map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
+              {[10, 15, 20, 30, 50].map((n) => (<option key={n} value={n}>{n}</option>))}
             </select>
 
             <label className="ml-3 text-sm text-slate-300">Página:</label>
@@ -331,33 +345,33 @@ export default function AvailabilityPage() {
             </table>
           </div>
 
-        <div className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-950/60">
-          <div className="text-xs text-slate-400">
-            {total ? `Mostrando ${Math.min(offset + 1, total)}–${Math.min(offset + limit, total)} de ${total}` : "—"}
+          <div className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-950/60">
+            <div className="text-xs text-slate-400">
+              {total ? `Mostrando ${Math.min(offset + 1, total)}–${Math.min(offset + limit, total)} de ${total}` : "—"}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => canPrev && setPage((p) => Math.max(1, p - 1))}
+                disabled={!canPrev}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm border " +
+                  (canPrev ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
+                }
+              >
+                ← Anterior
+              </button>
+              <button
+                onClick={() => canNext && setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={!canNext}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm border " +
+                  (canNext ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
+                }
+              >
+                Siguiente →
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => canPrev && setPage((p) => Math.max(1, p - 1))}
-              disabled={!canPrev}
-              className={
-                "px-3 py-1.5 rounded-lg text-sm border " +
-                (canPrev ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
-              }
-            >
-              ← Anterior
-            </button>
-            <button
-              onClick={() => canNext && setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={!canNext}
-              className={
-                "px-3 py-1.5 rounded-lg text-sm border " +
-                (canNext ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
-              }
-            >
-              Siguiente →
-            </button>
-          </div>
-        </div>
         </div>
       </section>
 
@@ -499,4 +513,3 @@ function RowExpandable({ e }: { e: DowntimeRow }) {
     </>
   );
 }
-

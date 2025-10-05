@@ -1,4 +1,8 @@
 // app/api/pending/route.ts
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -35,8 +39,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const toISO   = searchParams.get("to")   ?? new Date().toISOString();
     const fromISO = searchParams.get("from") ?? new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const line    = searchParams.get("line");         // filtro por línea (opcional)
-    const q       = searchParams.get("q");            // búsqueda libre (opcional)
+    const line    = searchParams.get("line");   // filtro por línea (opcional)
+    const q       = searchParams.get("q");      // búsqueda libre (opcional)
     const limit   = Math.min(1000, Number(searchParams.get("limit") ?? 1000));
 
     // Base: SOLO pendientes, que se solapen con el rango [from, to)
@@ -48,7 +52,7 @@ export async function GET(req: NextRequest) {
       .lt("started_at", toISO)
       .or(`ended_at.is.null,ended_at.gte.${fromISO}`);
 
-    // Filtro por línea (usamos line_code, que es lo que existe)
+    // Filtro por línea (usamos line_code)
     if (line && line !== "ALL") {
       base = base.ilike("line_code", `%${line}%`);
     }
