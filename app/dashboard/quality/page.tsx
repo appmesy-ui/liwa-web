@@ -67,11 +67,11 @@ function weightedAvg(rows: RowUI[], getter: (r: RowUI) => number | null) {
 const C = {
   good: "#10B981",
   scrap: "#F43F5E",
-  cardBase: "rounded-2xl border p-4 shadow-sm",
-  // Fondo oscuro translúcido (robusto para tablet/light). Mantiene blur si está disponible.
+  cardBase: "rounded-2xl border p-4 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)]",
+  // Skin oscuro consistente con Availability (evita “card blanca” en tablet).
   cardSkin:
-    "border-white/10 bg-slate-900/80 supports-[backdrop-filter]:backdrop-blur " +
-    "dark:bg-slate-900 dark:border-slate-700",
+    "border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] " +
+    "supports-[backdrop-filter]:backdrop-blur",
 };
 
 /* ================== UI Primitives ================== */
@@ -81,7 +81,6 @@ function BigKpi({
   return (
     <div className={`${C.cardBase} ${C.cardSkin}`}>
       <div className="flex items-start justify-between">
-        {/* siempre claro dentro de card */}
         <div className="text-sm text-slate-300">{label}</div>
         {chip}
       </div>
@@ -317,13 +316,11 @@ export default function QualityPage() {
   }, [rows, from, to]);
 
   return (
-    <div className="px-4 py-5 md:px-6 md:py-6 space-y-6">
+    <div className="px-4 py-5 md:px-6 md:py-6 space-y-6 text-slate-100">
       {/* Header */}
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-          Quality (Q)
-        </h1>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <h1 className="text-2xl font-semibold tracking-tight">Quality (Q)</h1>
+        <p className="text-sm text-slate-300">
           Q mide la proporción de unidades buenas sobre el total durante el <span className="font-medium">{analyzedLabel}</span>.
         </p>
       </header>
@@ -361,7 +358,7 @@ export default function QualityPage() {
 
       {/* Estado */}
       {error ? (
-        <div className="rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-rose-200">
+        <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">
           Error: {error}
         </div>
       ) : null}
@@ -369,4 +366,5 @@ export default function QualityPage() {
     </div>
   );
 }
+
 
