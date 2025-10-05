@@ -68,8 +68,10 @@ const C = {
   good: "#10B981",
   scrap: "#F43F5E",
   cardBase: "rounded-2xl border p-4 shadow-sm",
-  // SÓLIDO oscuro para tablets (nada de transparencia)
-  cardSkin: "border-white/10 bg-slate-900",
+  // Fondo oscuro consistente (evita “cards blancas” en tablet/iPad)
+  cardSkin:
+    "border-white/10 bg-slate-900/80 supports-[backdrop-filter]:backdrop-blur " +
+    "dark:bg-slate-900 dark:border-slate-700",
 };
 
 /* ================== UI Primitives ================== */
@@ -178,10 +180,10 @@ function LinesRanking({
                 <LineStackBar goodRatio={r.goodRatio} scrapRatio={r.scrapRatio} />
               </Link>
 
-              {/* Mostrar SIEMPRE en tablet/móvil */}
+              {/* Botón SIEMPRE visible (antes estaba oculto en pantallas < md) */}
               <Link
                 href={href}
-                className="inline-flex rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/5"
+                className="inline-flex rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-200 hover:bg-white/5"
                 title="Ver detalle de calidad de esta línea"
               >
                 Detalle →
@@ -242,7 +244,7 @@ export default function QualityPage() {
   /* ===== Derivaciones y agregados ===== */
   const {
     qSafe, scrapPct, hasUnits, totalUnits, goodUnits, scrapUnits,
-    linesForRank, analyzedLabel, summaryLine,
+    ratios, linesForRank, analyzedLabel, summaryLine,
   } = useMemo(() => {
     const validQ = rows.filter((r) => typeof r.quality === "number" && isFinite(r.quality as number));
     const q = validQ.length ? weightedAvg(validQ, (r) => clamp01(r.quality as number)) : null;
@@ -260,6 +262,9 @@ export default function QualityPage() {
       }
     }
     const hasUnits = tot > 0;
+
+    const donutGood = hasUnits ? good / tot : (qSafe ?? 0);
+    const donutScrap = hasUnits ? scrapU / tot : (qSafe == null ? 0 : (1 - qSafe));
 
     const lines = rows
       .filter((r) => r.line_code)
@@ -292,7 +297,7 @@ export default function QualityPage() {
 
     const analyzedLabel = fmtDuration(from, to);
     const summary = hasUnits
-      ? `Se produjeron ${nf.format(tot)} u; ${nf.format(scrapU)} u (${pctTxt(scrapU / tot)}) fueron scrap. FPY ${pctTxt(good / tot)}.`
+      ? `Se produjeron ${nf.format(tot)} u; ${nf.format(scrapU)} u (${pctTxt(donutScrap)}) fueron scrap. FPY ${pctTxt(good / tot)}.`
       : qSafe == null
         ? `Sin datos de calidad en el rango seleccionado.`
         : `Quality global ${pctTxt(qSafe)}; Scrap ${pctTxt(1 - qSafe)}.`;
@@ -304,6 +309,7 @@ export default function QualityPage() {
       totalUnits: tot,
       goodUnits: good,
       scrapUnits: scrapU,
+      ratios: { good: donutGood, scrap: donutScrap },
       linesForRank: lines,
       analyzedLabel,
       summaryLine: summary,
@@ -311,56 +317,53 @@ export default function QualityPage() {
   }, [rows, from, to]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="px-4 py-5 md:px-6 md:py-6 space-y-6">
-        {/* Header */}
-        <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Quality (Q)</h1>
-          <p className="text-sm text-slate-300">
-            Q mide la proporción de unidades buenas sobre el total durante el{" "}
-            <span className="font-medium">{analyzedLabel}</span>.
-          </p>
-        </header>
-
-        {/* KPIs */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <BigKpi label="Producción total" value={hasUnits ? nf.format(totalUnits) : "—"} sub={hasUnits ? "unidades en el rango" : "unidades no disponibles"} />
-          <BigKpi
-            label="Buenas"
-            value={hasUnits ? nf.format(goodUnits) : qSafe == null ? "—" : pctTxt(qSafe)}
-            sub={hasUnits ? `Q = ${pctTxt(goodUnits / Math.max(1, totalUnits))}` : qSafe == null ? "sin datos en el rango" : "promedio ponderado"}
-          />
-          <BigKpi
-            label="Scrap"
-            value={hasUnits ? nf.format(scrapUnits) : scrapPct == null ? "—" : pctTxt(scrapPct)}
-            sub={hasUnits ? "rechazo total" : qSafe == null ? "sin datos" : "1 − Q"}
-            chip={scrapPct != null ? <Chip text={pctTxt(hasUnits ? scrapUnits / Math.max(1, totalUnits) : scrapPct)} tone="rose" /> : undefined}
-          />
-          <BigKpi
-            label="FPY"
-            value={hasUnits ? pctTxt(goodUnits / Math.max(1, totalUnits)) : qSafe == null ? "—" : pctTxt(qSafe)}
-            sub="First Pass Yield"
-          />
-        </section>
-
-        {/* Frase ejecutiva */}
-        <p className="text-sm text-slate-300 border-l-4 border-emerald-500 pl-3">
-          {summaryLine}
+    <div className="px-4 py-5 md:px-6 md:py-6 space-y-6 text-slate-100">
+      {/* Header */}
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Quality (Q)</h1>
+        <p className="text-sm text-slate-300">
+          Q mide la proporción de unidades buenas sobre el total durante el <span className="font-medium">{analyzedLabel}</span>.
         </p>
+      </header>
 
-        {/* Ranking por línea */}
-        <section>
-          <LinesRanking rows={linesForRank} qs={qs} />
-        </section>
+      {/* KPIs */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <BigKpi label="Producción total" value={hasUnits ? nf.format(totalUnits) : "—"} sub={hasUnits ? "unidades en el rango" : "unidades no disponibles"} />
+        <BigKpi
+          label="Buenas"
+          value={hasUnits ? nf.format(goodUnits) : qSafe == null ? "—" : pctTxt(qSafe)}
+          sub={hasUnits ? `Q = ${pctTxt(goodUnits / Math.max(1, totalUnits))}` : qSafe == null ? "sin datos en el rango" : "promedio ponderado"}
+        />
+        <BigKpi
+          label="Scrap"
+          value={hasUnits ? nf.format(scrapUnits) : scrapPct == null ? "—" : pctTxt(scrapPct)}
+          sub={hasUnits ? "rechazo total" : qSafe == null ? "sin datos" : "1 − Q"}
+          chip={scrapPct != null ? <Chip text={pctTxt(hasUnits ? scrapUnits / Math.max(1, totalUnits) : scrapPct)} tone="rose" /> : undefined}
+        />
+        <BigKpi
+          label="FPY"
+          value={hasUnits ? pctTxt(goodUnits / Math.max(1, totalUnits)) : qSafe == null ? "—" : pctTxt(qSafe)}
+          sub="First Pass Yield"
+        />
+      </section>
 
-        {/* Estado */}
-        {error ? (
-          <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">
-            Error: {error}
-          </div>
-        ) : null}
-        {loading ? <div className="text-sm text-slate-400">Cargando datos…</div> : null}
-      </div>
+      {/* Frase ejecutiva */}
+      <p className="text-sm text-slate-300 border-l-4 border-emerald-500 pl-3">
+        {summaryLine}
+      </p>
+
+      {/* Ranking por línea */}
+      <section>
+        <LinesRanking rows={linesForRank} qs={qs} />
+      </section>
+
+      {/* Estado */}
+      {error ? (
+        <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">
+          Error: {error}
+        </div>
+      ) : null}
+      {loading ? <div className="text-sm text-slate-400">Cargando datos…</div> : null}
     </div>
   );
 }
