@@ -68,7 +68,10 @@ const C = {
   good: "#10B981",
   scrap: "#F43F5E",
   cardBase: "rounded-2xl border p-4 shadow-sm",
-  cardSkin: "bg-white/95 border-slate-200 dark:bg-slate-900 dark:border-slate-700",
+  // ⬇️ Cambio único: skin robusto que no se ve blanco aunque no esté activo `dark` (tablet)
+  cardSkin:
+    "border-white/10 bg-slate-900/80 supports-[backdrop-filter]:backdrop-blur " +
+    "dark:bg-slate-900 dark:border-slate-700",
 };
 
 /* ================== UI Primitives ================== */
