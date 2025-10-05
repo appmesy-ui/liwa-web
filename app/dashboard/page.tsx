@@ -22,7 +22,6 @@ type KpisResponse = {
   ok?: boolean;
   rows?: KpiRow[];
   series?: { bucket_ts: string; line_code: string | null; oee: number | null }[];
-  // pending?: number;  // ⬅︎ ya no lo usamos desde /api/kpis
   error?: string;
 };
 
@@ -44,17 +43,44 @@ const dtf = new Intl.DateTimeFormat("es-ES", {
 /* =========================
    Sparkline
 ========================= */
-function Sparkline({ values, width = 120, height = 24 }: { values: number[]; width?: number; height?: number }) {
-  if (!values || values.length === 0) return <svg width={width} height={height} aria-label="sparkline" />;
-  const v = values.map((x) => clamp01(Number(x) > 1 ? Number(x) / 100 : Number(x)));
-  const n = v.length, pad = 1.5, w = width - pad * 2, h = height - pad * 2;
-  const max = Math.max(...v), min = Math.min(...v), range = Math.max(0.0001, max - min), stepX = n > 1 ? w / (n - 1) : 0;
-  const pts = v.map((val, i) => [pad + i * stepX, pad + (1 - (range ? (val - min) / range : 0)) * h] as const);
-  const d = pts.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(" ");
+function Sparkline({
+  values,
+  width = 120,
+  height = 24,
+}: {
+  values: number[];
+  width?: number;
+  height?: number;
+}) {
+  if (!values || values.length === 0)
+    return <svg width={width} height={height} aria-label="sparkline" />;
+  const v = values.map((x) =>
+    clamp01(Number(x) > 1 ? Number(x) / 100 : Number(x))
+  );
+  const n = v.length;
+  const pad = 1.5;
+  const w = width - pad * 2;
+  const h = height - pad * 2;
+  const max = Math.max(...v);
+  const min = Math.min(...v);
+  const range = Math.max(0.0001, max - min);
+  const stepX = n > 1 ? w / (n - 1) : 0;
+  const pts = v.map(
+    (val, i) =>
+      [pad + i * stepX, pad + (1 - (range ? (val - min) / range : 0)) * h] as const
+  );
+  const d = pts
+    .map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`))
+    .join(" ");
   const last = v[n - 1] ?? 0;
   const color = last < 0.75 ? "#f43f5e" : last < 0.85 ? "#f59e0b" : "#10b981";
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-label="sparkline">
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      aria-label="sparkline"
+    >
       <defs>
         <linearGradient id="sparkGrad" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.95" />
@@ -62,8 +88,20 @@ function Sparkline({ values, width = 120, height = 24 }: { values: number[]; wid
           <stop offset="100%" stopColor="#eab308" stopOpacity="0.95" />
         </linearGradient>
       </defs>
-      <path d={d} fill="none" stroke="url(#sparkGrad)" strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="2.6" fill={color} />
+      <path
+        d={d}
+        fill="none"
+        stroke="url(#sparkGrad)"
+        strokeWidth={2.2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle
+        cx={pts[pts.length - 1][0]}
+        cy={pts[pts.length - 1][1]}
+        r="2.6"
+        fill={color}
+      />
     </svg>
   );
 }
@@ -71,20 +109,45 @@ function Sparkline({ values, width = 120, height = 24 }: { values: number[]; wid
 /* =========================
    Tarjeta móvil por línea
 ========================= */
-function LineCardMobile({ code, a, p, q, oee, serie }: { code: string; a: number; p: number; q: number; oee: number; serie: number[]; }) {
+function LineCardMobile({
+  code,
+  a,
+  p,
+  q,
+  oee,
+  serie,
+}: {
+  code: string;
+  a: number;
+  p: number;
+  q: number;
+  oee: number;
+  serie: number[];
+}) {
   const last = serie?.length ? serie[serie.length - 1] : oee;
-  const color = last < 0.75 ? "bg-rose-400/20 text-rose-200" : last < 0.85 ? "bg-amber-400/20 text-amber-200" : "bg-emerald-400/20 text-emerald-200";
+  const color =
+    last < 0.75
+      ? "bg-rose-400/20 text-rose-200"
+      : last < 0.85
+      ? "bg-amber-400/20 text-amber-200"
+      : "bg-emerald-400/20 text-emerald-200";
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="font-semibold">{code}</span>
-          <span className={`text-[11px] px-2 py-0.5 rounded-full ${color}`}>{pct(oee)}</span>
+          <span className={`text-[11px] px-2 py-0.5 rounded-full ${color}`}>
+            {pct(oee)}
+          </span>
         </div>
-        <div className="text-xs text-slate-400">A {pct(a)} · P {pct(p)} · Q {pct(q)}</div>
+        <div className="text-xs text-slate-400">
+          A {pct(a)} · P {pct(p)} · Q {pct(q)}
+        </div>
       </div>
       <div className="flex items-center justify-between gap-3">
-        <div className="grow"><Sparkline values={serie} width={180} height={36} /></div>
+        <div className="grow">
+          <Sparkline values={serie} width={180} height={36} />
+        </div>
         <div className="shrink-0 text-right">
           <div className="text-[11px] text-slate-400">OEE</div>
           <div className="text-lg font-semibold">{pct(oee)}</div>
@@ -95,15 +158,44 @@ function LineCardMobile({ code, a, p, q, oee, serie }: { code: string; a: number
 }
 
 /* =========================
-   KPI Card (A, P, Q)
+   KPI Card (A, P, Q) + Link
+   (hover/ring alineado a la card)
 ========================= */
-function KpiCard({ title, valueNum, value, subtitle }: { title: string; valueNum?: number | null; value: string; subtitle?: string; }) {
+function KpiCard({
+  title,
+  valueNum,
+  value,
+  subtitle,
+}: {
+  title: string;
+  valueNum?: number | null;
+  value: string;
+  subtitle?: string;
+}) {
   const v = clamp01(valueNum ?? 0);
   return (
-    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-5 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] backdrop-blur">
+    <div
+      className={[
+        "rounded-2xl border p-5 backdrop-blur",
+        "bg-gradient-to-br from-white/[0.05] to-white/[0.02]",
+        "border-white/10",
+        // Hover/focus perfectamente alineado a la card
+        "transition-colors",
+        "group-hover:border-emerald-400/45",
+        "group-hover:from-white/[0.07] group-hover:to-white/[0.03]",
+        "group-hover:ring-1 group-hover:ring-inset group-hover:ring-emerald-400/30",
+        "focus-within:border-emerald-400/50 focus-within:ring-1 focus-within:ring-inset focus-within:ring-emerald-400/40",
+      ].join(" ")}
+    >
       <div className="flex items-center justify-between">
         <div className="text-slate-200/90 text-sm">{title}</div>
-        {subtitle ? <div className="text-[11px] px-2 py-1 rounded-lg border border-white/10 text-slate-300/80">{subtitle}</div> : <span />}
+        {subtitle ? (
+          <div className="text-[11px] px-2 py-1 rounded-lg border border-white/10 text-slate-300/80">
+            {subtitle}
+          </div>
+        ) : (
+          <span />
+        )}
       </div>
       <div className="mt-2 text-4xl font-semibold tracking-tight">{value}</div>
       <div className="mt-4 h-2 w-full rounded-full bg-white/10 overflow-hidden">
@@ -111,7 +203,8 @@ function KpiCard({ title, valueNum, value, subtitle }: { title: string; valueNum
           className="h-full rounded-full transition-[width] duration-500"
           style={{
             width: `${v * 100}%`,
-            background: "linear-gradient(90deg, rgba(59,130,246,.9) 0%, rgba(34,197,94,.95) 60%, rgba(234,179,8,.95) 100%)",
+            background:
+              "linear-gradient(90deg, rgba(59,130,246,.9) 0%, rgba(34,197,94,.95) 60%, rgba(234,179,8,.95) 100%)",
           }}
         />
       </div>
@@ -119,7 +212,6 @@ function KpiCard({ title, valueNum, value, subtitle }: { title: string; valueNum
   );
 }
 
-/* Enlace envolviendo KPI card (overlay) */
 function KpiCardLink({
   href,
   title,
@@ -133,17 +225,21 @@ function KpiCardLink({
   value: string;
   subtitle?: string;
 }) {
+  // El Link envuelve la card para que el hover/focus coincida exactamente con su borde.
   return (
-    <div className="relative group">
+    <Link
+      href={href}
+      aria-label={`Ver detalle de ${title}`}
+      className="group block rounded-2xl focus:outline-none"
+    >
       <KpiCard title={title} valueNum={valueNum} value={value} subtitle={subtitle} />
-      <Link href={href} aria-label={`Ver detalle de ${title}`} className="absolute inset-0 rounded-2xl" />
-      <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition shadow-[0_0_0_2px_rgba(255,255,255,0.08)]" />
-    </div>
+    </Link>
   );
 }
 
 /* =========================
    OEE HERO (NO CLICABLE)
+   – Gauge más amplio (200px)
 ========================= */
 function OeeHero({
   oee,
@@ -156,6 +252,8 @@ function OeeHero({
 }) {
   const val = clamp01(oee ?? 0);
   const radius = 56;
+  const strokeW = 12;
+  const innerR = Math.max(0, radius - strokeW); // disco central
   const circumference = 2 * Math.PI * radius;
   const progress = circumference * val;
   const remainder = circumference - progress;
@@ -163,10 +261,12 @@ function OeeHero({
   return (
     <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-5 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.6)]">
       <div className="flex flex-col md:flex-row items-stretch gap-6">
-        {/* Gauge */}
-        <div className="relative shrink-0 self-center md:self-auto">
-          <svg width="140" height="140" viewBox="0 0 140 140" aria-label="OEE gauge">
-            <circle cx="70" cy="70" r={radius} stroke="rgba(255,255,255,0.12)" strokeWidth="12" fill="none" />
+        {/* Gauge más amplio */}
+        <div className="relative shrink-0 self-center md:self-auto w-[200px] h-[200px]">
+          <svg width="200" height="200" viewBox="0 0 140 140" aria-label="OEE gauge">
+            {/* track */}
+            <circle cx="70" cy="70" r={radius} stroke="rgba(255,255,255,0.12)" strokeWidth={strokeW} fill="none" />
+            {/* progreso */}
             <defs>
               <linearGradient id="oeeGrad" x1="0" x2="1" y1="0" y2="1">
                 <stop offset="0%" stopColor="#60a5fa" />
@@ -179,17 +279,25 @@ function OeeHero({
               cy="70"
               r={radius}
               stroke="url(#oeeGrad)"
-              strokeWidth="12"
+              strokeWidth={strokeW}
               strokeLinecap="round"
               fill="none"
               strokeDasharray={`${progress} ${remainder}`}
               transform="rotate(-90 70 70)"
             />
+            {/* disco central para contraste */}
+            <circle cx="70" cy="70" r={innerR} fill="rgba(2,6,23,0.88)" />
           </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
+
+          {/* overlay centrado */}
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <div className="text-[11px] tracking-wide text-slate-300/80">OEE</div>
-            <div className="text-4xl font-semibold">{loading ? "…" : pct(oee)}</div>
-            <div className="mt-1 text-[11px] px-2 py-0.5 rounded-md border border-white/10 text-slate-300/80">A × P × Q</div>
+            <div className="text-4xl font-semibold text-slate-50">
+              {loading ? "…" : pct(oee)}
+            </div>
+            <div className="mt-1 text-[11px] px-2 py-0.5 rounded-md border border-white/10 text-slate-300/80">
+              A × P × Q
+            </div>
           </div>
         </div>
 
@@ -201,7 +309,6 @@ function OeeHero({
     </div>
   );
 }
-
 
 /* =========================
    Página
@@ -253,7 +360,9 @@ export default function DashboardPage() {
   const rowsFiltered = useMemo(() => {
     if (!rows.length) return [];
     if (!selectedLines.size) return [];
-    return rows.filter((r) => selectedLines.has((r.line_code || "").toUpperCase()));
+    return rows.filter((r) =>
+      selectedLines.has((r.line_code || "").toUpperCase())
+    );
   }, [rows, selectedLines]);
 
   // rango
@@ -275,12 +384,16 @@ export default function DashboardPage() {
       try {
         const { data } = await supabase.auth.getSession();
         setUserEmail(data.session?.user?.email ?? null);
-      } catch { setUserEmail(null); }
+      } catch {
+        setUserEmail(null);
+      }
       try {
         const meRes = await fetch("/api/me");
         const me = await meRes.json();
         setOrgName(me?.ok && me.orgs?.[0]?.name ? me.orgs[0].name : null);
-      } catch { setOrgName(null); }
+      } catch {
+        setOrgName(null);
+      }
     })();
   }, [hydrated, supabase]);
 
@@ -293,7 +406,11 @@ export default function DashboardPage() {
 
     const parseJsonLoosely = async (res: Response) => {
       const txt = await res.text();
-      try { return JSON.parse(txt); } catch { return null; }
+      try {
+        return JSON.parse(txt);
+      } catch {
+        return null;
+      }
     };
 
     const load = async () => {
@@ -302,7 +419,11 @@ export default function DashboardPage() {
         setErr(null);
 
         // 1) intento con rango
-        const q = new URLSearchParams({ from: fromISO, to: toISO, step: "all" }).toString();
+        const q = new URLSearchParams({
+          from: fromISO,
+          to: toISO,
+          step: "all",
+        }).toString();
         let res = await fetch(`/api/kpis?${q}`);
         let json = (await parseJsonLoosely(res)) as KpisResponse | null;
 
@@ -315,8 +436,14 @@ export default function DashboardPage() {
 
         if (!mounted) return;
 
-        const kRows: KpiRow[] = Array.isArray(json?.rows) ? (json!.rows as KpiRow[]) : [];
-        setRows(kRows.slice().sort((a, b) => (a.line_code || "").localeCompare(b.line_code || "")));
+        const kRows: KpiRow[] = Array.isArray(json?.rows)
+          ? (json!.rows as KpiRow[])
+          : [];
+        setRows(
+          kRows
+            .slice()
+            .sort((a, b) => (a.line_code || "").localeCompare(b.line_code || ""))
+        );
 
         // series (usa row.spark si viene)
         const by: Record<string, number[]> = {};
@@ -324,13 +451,19 @@ export default function DashboardPage() {
           const code = (r.line_code || "—").toUpperCase();
           const arr = Array.isArray(r.spark) ? r.spark : [];
           if (arr.length) {
-            by[code] = arr.map((x) => clamp01((Number(x) > 1 ? Number(x) / 100 : Number(x)) || 0));
+            by[code] = arr.map((x) =>
+              clamp01((Number(x) > 1 ? Number(x) / 100 : Number(x)) || 0)
+            );
           }
         }
         if (json?.series?.length) {
-          const arr = json.series.slice().sort(
-            (a, b) => new Date(a.bucket_ts).getTime() - new Date(b.bucket_ts).getTime()
-          );
+          const arr = json.series
+            .slice()
+            .sort(
+              (a, b) =>
+                new Date(a.bucket_ts).getTime() -
+                new Date(b.bucket_ts).getTime()
+            );
           for (const r of arr) {
             const code = (r.line_code || "—").toUpperCase();
             const n = clamp01(Number(r.oee));
@@ -351,11 +484,13 @@ export default function DashboardPage() {
     };
 
     load();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [hydrated, fromISO, toISO]);
 
   // ========================
-  //  Contador de pendientes (misma fuente que la página de Pendientes)
+  //  Contador de pendientes
   // ========================
   useEffect(() => {
     if (!fromISO || !toISO) return;
@@ -363,10 +498,11 @@ export default function DashboardPage() {
     (async () => {
       try {
         const qs = new URLSearchParams({ state: "pending", limit: "1" });
-        // mismo rango que la vista
         if (fromISO) qs.set("from", fromISO);
-        if (toISO)   qs.set("to", toISO);
-        const res = await fetch(`/api/downtimes?${qs.toString()}`, { cache: "no-store" });
+        if (toISO) qs.set("to", toISO);
+        const res = await fetch(`/api/downtimes?${qs.toString()}`, {
+          cache: "no-store",
+        });
         const j = await res.json();
         if (!alive) return;
         if (j?.ok) setPendingCount(Number(j.total_count ?? 0));
@@ -375,7 +511,9 @@ export default function DashboardPage() {
         if (alive) setPendingCount(0);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [fromISO, toISO]);
 
   // usar todas las líneas si aún no hay selección
@@ -387,19 +525,29 @@ export default function DashboardPage() {
   const agg = useMemo(() => {
     const rs = rowsForAgg;
     if (!rs.length) return null;
-    const totPlan = rs.reduce((acc, r) => acc + (r.planned_runtime_sec ?? 0), 0);
+    const totPlan = rs.reduce(
+      (acc, r) => acc + (r.planned_runtime_sec ?? 0),
+      0
+    );
     const w = (r: KpiRow) => (r.planned_runtime_sec ?? 0) / (totPlan || 1);
-    const availability = rs.reduce((a, r) => a + clamp01(r.availability) * w(r), 0);
-    const performance  = rs.reduce((a, r) => a + clamp01(r.performance)  * w(r), 0);
-    const quality      = rs.reduce((a, r) => a + clamp01(r.quality)      * w(r), 0);
+    const availability = rs.reduce(
+      (a, r) => a + clamp01(r.availability) * w(r),
+      0
+    );
+    const performance = rs.reduce(
+      (a, r) => a + clamp01(r.performance) * w(r),
+      0
+    );
+    const quality = rs.reduce((a, r) => a + clamp01(r.quality) * w(r), 0);
     const oee = availability * performance * quality;
     return { availability, performance, quality, oee };
   }, [rowsForAgg]);
 
   const rangeBtn = (r: "24h" | "7d" | "30d") =>
     `px-3 py-1 rounded-lg text-xs ${
-      range === r ? "bg-emerald-500 text-emerald-950 font-medium shadow-[0_10px_25px_-10px_rgba(16,185,129,.7)]"
-                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+      range === r
+        ? "bg-emerald-500 text-emerald-950 font-medium shadow-[0_10px_25px_-10px_rgba(16,185,129,.7)]"
+        : "bg-slate-800 text-slate-300 hover:bg-slate-700"
     }`;
 
   const rangeQS = useMemo(
@@ -409,7 +557,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen w-full text-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* Encabezado interno del dashboard (logo + info + rango) — sin botón de cerrar sesión */}
+      {/* Encabezado */}
       <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur px-5">
         <div className="max-w-7xl mx-auto py-4 flex flex-wrap gap-3 items-center justify-between">
           <div className="flex items-center gap-4">
@@ -421,14 +569,24 @@ export default function DashboardPage() {
             {userEmail && <span className="hidden md:block text-slate-400">{userEmail}</span>}
             {fromISO && toISO && (
               <span className="text-slate-400/80">
-                {range === "24h" ? "Últimas 24h" : range === "7d" ? "Últimos 7 días" : "Últimos 30 días"} ·{" "}
-                {dtf.format(new Date(fromISO))} → {dtf.format(new Date(toISO))}
+                {range === "24h"
+                  ? "Últimas 24h"
+                  : range === "7d"
+                  ? "Últimos 7 días"
+                  : "Últimos 30 días"}{" "}
+                · {dtf.format(new Date(fromISO))} → {dtf.format(new Date(toISO))}
               </span>
             )}
             <div className="flex items-center gap-1.5">
-              <button className={rangeBtn("24h")} onClick={() => setRange("24h")}>24h</button>
-              <button className={rangeBtn("7d")} onClick={() => setRange("7d")}>7d</button>
-              <button className={rangeBtn("30d")} onClick={() => setRange("30d")}>30d</button>
+              <button className={rangeBtn("24h")} onClick={() => setRange("24h")}>
+                24h
+              </button>
+              <button className={rangeBtn("7d")} onClick={() => setRange("7d")}>
+                7d
+              </button>
+              <button className={rangeBtn("30d")} onClick={() => setRange("30d")}>
+                30d
+              </button>
             </div>
           </div>
         </div>
@@ -459,7 +617,11 @@ export default function DashboardPage() {
           </OeeHero>
         </div>
 
-        {err && <div className="mb-6 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-rose-200">{err}</div>}
+        {err && (
+          <div className="mb-6 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-rose-200">
+            {err}
+          </div>
+        )}
 
         {/* Filtro por línea */}
         <div className="mb-4 flex items-center gap-2 flex-wrap">
@@ -482,8 +644,18 @@ export default function DashboardPage() {
             );
           })}
           <span className="mx-1 h-5 w-px bg-white/10" />
-          <button onClick={selectAll}  className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700">Todos</button>
-          <button onClick={selectNone} className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700">Ninguno</button>
+          <button
+            onClick={selectAll}
+            className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700"
+          >
+            Todos
+          </button>
+          <button
+            onClick={selectNone}
+            className="px-3 py-1 rounded-full text-xs border bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700"
+          >
+            Ninguno
+          </button>
         </div>
 
         {/* KPIs por línea */}
@@ -491,7 +663,11 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold tracking-tight">KPIs por línea</h2>
             <div className="text-sm text-slate-400">
-              {loading ? "Cargando…" : `${(selectedLines.size ? rowsFiltered.length : rows.length)} línea${(selectedLines.size ? rowsFiltered.length : rows.length) === 1 ? "" : "s"}`}
+              {loading
+                ? "Cargando…"
+                : `${(selectedLines.size ? rowsFiltered.length : rows.length)} línea${
+                    (selectedLines.size ? rowsFiltered.length : rows.length) === 1 ? "" : "s"
+                  }`}
             </div>
           </div>
 
@@ -510,15 +686,28 @@ export default function DashboardPage() {
               <tbody>
                 {(selectedLines.size ? rowsFiltered : rows).map((r) => {
                   const code = (r.line_code || "—").toUpperCase();
-                  const a = clamp01(r.availability), p = clamp01(r.performance), q = clamp01(r.quality), oee = clamp01(r.oee);
+                  const a = clamp01(r.availability);
+                  const p = clamp01(r.performance);
+                  const q = clamp01(r.quality);
+                  const oee = clamp01(r.oee);
                   const serie = seriesByLine[code] || [];
                   let trendPP: number | null = null;
                   if (serie.length >= 2) trendPP = (serie[serie.length - 1] - serie[0]) * 100;
                   const arrow = trendPP == null ? "—" : trendPP > 0 ? "▲" : trendPP < 0 ? "▼" : "—";
-                  const color = trendPP == null ? "text-slate-400" : trendPP > 0 ? "text-emerald-400" : trendPP < 0 ? "text-rose-400" : "text-slate-400";
+                  const color =
+                    trendPP == null
+                      ? "text-slate-400"
+                      : trendPP > 0
+                      ? "text-emerald-400"
+                      : trendPP < 0
+                      ? "text-rose-400"
+                      : "text-slate-400";
                   const ppText = trendPP == null ? "—" : `${Math.abs(trendPP).toFixed(1)} pts`;
                   return (
-                    <tr key={code} className="border-t border-white/10 hover:bg-white/[0.06] transition-colors">
+                    <tr
+                      key={code}
+                      className="border-t border-white/10 hover:bg-white/[0.06] transition-colors"
+                    >
                       <td className="py-3 pr-4 font-medium">{code}</td>
                       <td className="py-3 px-4 text-right">{pct(a)}</td>
                       <td className="py-3 px-4 text-right">{pct(p)}</td>
@@ -527,7 +716,9 @@ export default function DashboardPage() {
                       <td className="py-3 pl-4">
                         <div className="flex items-center justify-end gap-2">
                           <Sparkline values={serie} />
-                          <span className={`inline-flex items-center gap-1 text-xs ${color}`}>{arrow} {ppText}</span>
+                          <span className={`inline-flex items-center gap-1 text-xs ${color}`}>
+                            {arrow} {ppText}
+                          </span>
                         </div>
                       </td>
                     </tr>
@@ -539,14 +730,29 @@ export default function DashboardPage() {
 
           <div className="md:hidden">
             {!(selectedLines.size ? rowsFiltered.length : rows.length) ? (
-              <div className="py-3 text-slate-400">{!hydrated || loading ? "Cargando…" : "Sin datos"}</div>
+              <div className="py-3 text-slate-400">
+                {!hydrated || loading ? "Cargando…" : "Sin datos"}
+              </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {(selectedLines.size ? rowsFiltered : rows).map((r) => {
                   const code = (r.line_code || "—").toUpperCase();
-                  const a = clamp01(r.availability), p = clamp01(r.performance), q = clamp01(r.quality), oee = clamp01(r.oee);
+                  const a = clamp01(r.availability);
+                  const p = clamp01(r.performance);
+                  const q = clamp01(r.quality);
+                  const oee = clamp01(r.oee);
                   const serie = seriesByLine[code] || [];
-                  return <LineCardMobile key={code} code={code} a={a} p={p} q={q} oee={oee} serie={serie} />;
+                  return (
+                    <LineCardMobile
+                      key={code}
+                      code={code}
+                      a={a}
+                      p={p}
+                      q={q}
+                      oee={oee}
+                      serie={serie}
+                    />
+                  );
                 })}
               </div>
             )}
@@ -557,9 +763,14 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
             <div className="text-sm text-slate-300/80">Paros sin clasificar</div>
-            <div className="text-3xl font-semibold mt-1 tracking-tight">{!hydrated || loading ? "…" : pendingCount}</div>
+            <div className="text-3xl font-semibold mt-1 tracking-tight">
+              {!hydrated || loading ? "…" : pendingCount}
+            </div>
           </div>
-          <a href="/pending" className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-5 py-3 transition shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]">
+          <a
+            href="/pending"
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-5 py-3 transition shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]"
+          >
             Ver pendientes <span className="text-sm opacity-80">→</span>
           </a>
         </div>
@@ -567,4 +778,3 @@ export default function DashboardPage() {
     </main>
   );
 }
-
