@@ -67,11 +67,9 @@ function weightedAvg(rows: RowUI[], getter: (r: RowUI) => number | null) {
 const C = {
   good: "#10B981",
   scrap: "#F43F5E",
-  cardBase: "rounded-2xl border p-4 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)]",
-  // Skin oscuro consistente con Availability (evita “card blanca” en tablet).
-  cardSkin:
-    "border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] " +
-    "supports-[backdrop-filter]:backdrop-blur",
+  cardBase: "rounded-2xl border p-4 shadow-sm",
+  // ⬇️ MISMA “PIEL” QUE EL RESTO DE LA APP (evita cards blancas en tablet)
+  cardSkin: "border-white/10 bg-white/[0.04]",
 };
 
 /* ================== UI Primitives ================== */
@@ -84,7 +82,7 @@ function BigKpi({
         <div className="text-sm text-slate-300">{label}</div>
         {chip}
       </div>
-      <div className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight text-slate-50 tabular-nums">
+      <div className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight text-slate-100 tabular-nums">
         {value}
       </div>
       {sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}
@@ -358,7 +356,7 @@ export default function QualityPage() {
 
       {/* Estado */}
       {error ? (
-        <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">
+        <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">
           Error: {error}
         </div>
       ) : null}
@@ -366,5 +364,3 @@ export default function QualityPage() {
     </div>
   );
 }
-
-
