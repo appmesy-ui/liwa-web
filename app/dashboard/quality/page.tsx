@@ -68,7 +68,7 @@ const C = {
   good: "#10B981",
   scrap: "#F43F5E",
   cardBase: "rounded-2xl border p-4 shadow-sm",
-  // ⬇️ Cambio único: skin robusto que no se ve blanco aunque no esté activo `dark` (tablet)
+  // Fondo oscuro translúcido (robusto para tablet/light). Mantiene blur si está disponible.
   cardSkin:
     "border-white/10 bg-slate-900/80 supports-[backdrop-filter]:backdrop-blur " +
     "dark:bg-slate-900 dark:border-slate-700",
@@ -81,13 +81,14 @@ function BigKpi({
   return (
     <div className={`${C.cardBase} ${C.cardSkin}`}>
       <div className="flex items-start justify-between">
-        <div className="text-sm text-slate-600 dark:text-slate-300">{label}</div>
+        {/* siempre claro dentro de card */}
+        <div className="text-sm text-slate-300">{label}</div>
         {chip}
       </div>
-      <div className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
+      <div className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight text-slate-50 tabular-nums">
         {value}
       </div>
-      {sub ? <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{sub}</div> : null}
+      {sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}
     </div>
   );
 }
@@ -110,7 +111,7 @@ function LineStackBar({ goodRatio, scrapRatio }:{ goodRatio:number; scrapRatio:n
   const good = clamp01(goodRatio), scrap = clamp01(scrapRatio);
   const tot = Math.max(1e-6, good + scrap);
   return (
-    <div className="mt-1 h-2.5 w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800">
+    <div className="mt-1 h-2.5 w-full rounded-full overflow-hidden bg-slate-800">
       <div className="h-full" style={{ width: `${(good / tot) * 100}%`, backgroundColor: C.good }} />
       <div className="h-full" style={{ width: `${(scrap / tot) * 100}%`, backgroundColor: C.scrap }} />
     </div>
@@ -137,8 +138,8 @@ function LinesRanking({
   if (usable.length === 0) {
     return (
       <div className={`${C.cardBase} ${C.cardSkin}`}>
-        <div className="text-sm text-slate-600 dark:text-slate-300 mb-1">Top pérdidas por línea</div>
-        <div className="text-sm text-slate-500 dark:text-slate-400">Sin datos en el rango seleccionado.</div>
+        <div className="text-sm text-slate-300 mb-1">Top pérdidas por línea</div>
+        <div className="text-sm text-slate-400">Sin datos en el rango seleccionado.</div>
       </div>
     );
   }
@@ -151,7 +152,7 @@ function LinesRanking({
 
   return (
     <div className={`${C.cardBase} ${C.cardSkin}`}>
-      <div className="text-sm text-slate-600 dark:text-slate-300 mb-3">Top pérdidas por línea</div>
+      <div className="text-sm text-slate-300 mb-3">Top pérdidas por línea</div>
       <div className="space-y-3">
         {sorted.map((r, i) => {
           const scrapPct = r.units_total
@@ -166,11 +167,11 @@ function LinesRanking({
 
           return (
             <div key={`${r.line}-${i}`} className="flex items-center gap-3">
-              <div className="w-6 text-right tabular-nums text-slate-400 dark:text-slate-500">{i + 1}</div>
+              <div className="w-6 text-right tabular-nums text-slate-500">{i + 1}</div>
 
               <Link href={href} className="min-w-24 flex-1 group">
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-slate-800 dark:text-slate-200 group-hover:underline">
+                  <div className="font-medium text-slate-100 group-hover:underline">
                     {r.line}
                   </div>
                   <span className="px-2 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-rose-500/10 text-rose-300">
@@ -327,7 +328,7 @@ export default function QualityPage() {
         </p>
       </header>
 
-      {/* KPIs (sin retrabajo ni barra de progreso) */}
+      {/* KPIs */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <BigKpi label="Producción total" value={hasUnits ? nf.format(totalUnits) : "—"} sub={hasUnits ? "unidades en el rango" : "unidades no disponibles"} />
         <BigKpi
@@ -349,22 +350,22 @@ export default function QualityPage() {
       </section>
 
       {/* Frase ejecutiva */}
-      <p className="text-sm text-slate-700 dark:text-slate-300 border-l-4 border-emerald-500 pl-3">
+      <p className="text-sm text-slate-300 border-l-4 border-emerald-500 pl-3">
         {summaryLine}
       </p>
 
-      {/* Ranking por línea -> detalle de calidad */}
+      {/* Ranking por línea */}
       <section>
         <LinesRanking rows={linesForRank} qs={qs} />
       </section>
 
       {/* Estado */}
       {error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+        <div className="rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-rose-200">
           Error: {error}
         </div>
       ) : null}
-      {loading ? <div className="text-sm text-slate-500 dark:text-slate-400">Cargando datos…</div> : null}
+      {loading ? <div className="text-sm text-slate-400">Cargando datos…</div> : null}
     </div>
   );
 }
