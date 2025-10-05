@@ -1,9 +1,13 @@
+// app/api/pareto-stops/route.ts
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = "force-dynamic";
-
-type Level = "l1" | "l2"; // ← solo 2 niveles efectivos con la vista actual
+type Level = "l1" | "l2";           // vista actual: 2 niveles (lvl2_name, lvl3_name)
 type Metric = "minutes" | "count";
 type PercentBase = "total" | "top";
 type PlannedMode = "all" | "only" | "exclude";
@@ -29,7 +33,8 @@ export async function GET(req: NextRequest) {
   const planned = ((p.get("planned") || "all").toLowerCase() as PlannedMode) || "all";
   const onlyClassified = p.get("only_classified") !== "false";
 
-  // Línea
+  // Línea / ámbito
+  const scope = (p.get("scope") || "total") as "total" | "line";
   const line = p.get("line") || undefined;
   const lineField = (p.get("line_field") || "line_id").toLowerCase(); // line_id | line_code
 
@@ -39,6 +44,10 @@ export async function GET(req: NextRequest) {
   // Otros
   const percentBase = ((p.get("percent_base") || "total").toLowerCase() as PercentBase) || "total";
   const source = ((p.get("source") || "live").toLowerCase() as Source) || "live";
+
+  // Filtros multi-tenant (si existen en la vista)
+  const orgId = p.get("org_id");
+  const plantId = p.get("plant_id");
 
   // Ventana
   let fromISO = p.get("from") || undefined;
@@ -59,9 +68,15 @@ export async function GET(req: NextRequest) {
       toISO = toUTC.toISOString();
     }
 
+    const fromMs = new Date(fromISO!).getTime();
+    const toMs = new Date(toISO!).getTime();
+    if (!(fromMs < toMs)) {
+      return NextResponse.json({ ok: false, error: "Rango [from,to) inválido" }, { status: 400 });
+    }
+
     // Resolver line_id si vino code
     let lineIdForFilter: string | undefined;
-    if (line) {
+    if (scope === "line" && line) {
       if (lineField === "line_id") {
         lineIdForFilter = line;
       } else if (lineField === "line_code") {
@@ -84,7 +99,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ⬇⬇ MAPEAMOS NIVELES A LAS COLUMNAS DISPONIBLES EN LA VISTA
+    // Mapeo de niveles a columnas disponibles en la vista:
     // L1 -> lvl2_name  |  L2 -> lvl3_name
     const groupCol = level === "l1" ? "lvl2_name" : "lvl3_name";
 
@@ -93,17 +108,21 @@ export async function GET(req: NextRequest) {
         .schema("liwa")
         .from(table)
         .select(`
-          ${groupCol},
+          id,
+          started_at,
+          ended_at,
           duration_s,
           is_planned,
           classified_ui,
           lvl2_name,
           lvl3_name,
           line_id,
-          started_at
+          org_id,
+          plant_id
         `)
-        .gte("started_at", fromISO!)
-        .lt("started_at", toISO!);
+        // FILTRO DE SOLAPE con [from,to): started_at < to AND (ended_at IS NULL OR ended_at >= from)
+        .lt("started_at", toISO!)
+        .or(`ended_at.is.null,ended_at.gte.${fromISO!}`);
 
     const datasets: any[][] = [];
 
@@ -112,9 +131,11 @@ export async function GET(req: NextRequest) {
       if (onlyClassified) q = q.eq("classified_ui", true);
       if (planned === "only") q = q.eq("is_planned", true);
       if (planned === "exclude") q = q.eq("is_planned", false);
-      if (lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
+      if (scope === "line" && lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
       if (level === "l2" && parentL1) q = q.eq("lvl2_name", parentL1); // drill
-      const { data, error } = await q;
+      if (orgId) q = q.eq("org_id", orgId);
+      if (plantId) q = q.eq("plant_id", plantId);
+      const { data, error } = await q.limit(50000);
       if (error) {
         const msg = error.message || error.details || JSON.stringify(error);
         return NextResponse.json({ ok: false, error: msg }, { status: 500 });
@@ -123,13 +144,15 @@ export async function GET(req: NextRequest) {
     }
 
     if (source === "seed" || source === "both") {
-      let q = makeQuery("pareto_seed"); // opcional
+      let q = makeQuery("pareto_seed"); // opcional/semillas
       if (onlyClassified) q = q.eq("classified_ui", true);
       if (planned === "only") q = q.eq("is_planned", true);
       if (planned === "exclude") q = q.eq("is_planned", false);
-      if (lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
+      if (scope === "line" && lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
       if (level === "l2" && parentL1) q = q.eq("lvl2_name", parentL1);
-      const { data, error } = await q;
+      if (orgId) q = q.eq("org_id", orgId);
+      if (plantId) q = q.eq("plant_id", plantId);
+      const { data, error } = await q.limit(50000);
       if (error) {
         const msg = error.message || error.details || JSON.stringify(error);
         return NextResponse.json({ ok: false, error: msg }, { status: 500 });
@@ -137,71 +160,87 @@ export async function GET(req: NextRequest) {
       datasets.push(data || []);
     }
 
-    const data = ([] as any[]).concat(...datasets);
+    const rows = ([] as any[]).concat(...datasets);
 
-    // Agregación
+    // === Agregación con solape ===
     type Agg = { name: string; minutes: number; count: number };
     const agg: Record<string, Agg> = {};
 
-    for (const ev of data || []) {
-      let raw = (ev as any)[groupCol] as string | null;
-      if (!raw) continue; // sin etiqueta no entra a pareto
-      const name = String(raw).trim();
+    const overlapSec = (s: string, e: string | null) => {
+      const sMs = new Date(s).getTime();
+      const eMs = e ? new Date(e).getTime() : Date.now();
+      const ms = Math.max(0, Math.min(eMs, toMs) - Math.max(sMs, fromMs));
+      return Math.floor(ms / 1000);
+    };
+
+    for (const ev of rows) {
+      const nameRaw = (ev as any)[groupCol] as string | null;
+      if (!nameRaw) continue;
+      const name = String(nameRaw).trim();
       if (!name) continue;
 
+      const secs = overlapSec(ev.started_at, ev.ended_at);
+      if (secs <= 0) continue;
+
       if (!agg[name]) agg[name] = { name, minutes: 0, count: 0 };
-      agg[name].minutes += (ev.duration_s || 0) / 60;
+      agg[name].minutes += secs / 60;
       agg[name].count += 1;
     }
 
-    let rowsAll = Object.values(agg);
-    const totalMinutesAll = rowsAll.reduce((s, r) => s + r.minutes, 0);
-    const totalCountAll = rowsAll.reduce((s, r) => s + r.count, 0);
+    let list = Object.values(agg);
+    const totalMinutesAll = list.reduce((s, r) => s + r.minutes, 0);
+    const totalCountAll = list.reduce((s, r) => s + r.count, 0);
 
-    rowsAll.sort((a, b) => {
+    // Orden por métrica desc
+    list.sort((a, b) => {
       const va = metric === "minutes" ? a.minutes : a.count;
       const vb = metric === "minutes" ? b.minutes : b.count;
       if (vb !== va) return vb - va;
       return a.name.localeCompare(b.name, "es");
     });
 
-    let rows = rowsAll;
-    if (topK > 0) rows = rowsAll.slice(0, topK);
+    let rowsTop = list;
+    if (topK > 0) rowsTop = list.slice(0, topK);
 
     const baseValue =
       metric === "minutes"
-        ? (percentBase === "top" ? rows.reduce((s, r) => s + r.minutes, 0) : totalMinutesAll)
-        : (percentBase === "top" ? rows.reduce((s, r) => s + r.count, 0) : totalCountAll);
+        ? (percentBase === "top" ? rowsTop.reduce((s, r) => s + r.minutes, 0) : totalMinutesAll)
+        : (percentBase === "top" ? rowsTop.reduce((s, r) => s + r.count, 0) : totalCountAll);
 
     let acc = 0;
-    const out = rows.map((r, idx) => {
+    const out = rowsTop.map((r, idx) => {
       const value = metric === "minutes" ? r.minutes : r.count;
       const pct = baseValue > 0 ? (value / baseValue) * 100 : 0;
       acc += pct;
+
+      // Evitar “0 min” en barras reales: mínimo 1 si hubo solape
+      const minutesRounded = Math.max(1, Math.round(r.minutes));
+
       return {
-        rank: idx + 1,
-        name: r.name,
-        minutes: Math.round(r.minutes * 100) / 100,
-        count: Math.round(r.count),
+        key: `${level}|${r.name}`,
+        label: r.name,
+        minutes: minutesRounded,
+        count: r.count,
         pct: Math.round(pct * 10) / 10,
-        pct_acc: Math.round(acc * 10) / 10,
+        cumPct: Math.round(acc * 10) / 10,
       };
     });
 
+    const coverage80 = out.findIndex((i) => i.cumPct >= 80);
     return NextResponse.json({
       ok: true,
-      rows: out,
       meta: {
-        level, metric,
-        from: fromISO, to: toISO,
-        planned, only_classified: onlyClassified,
-        top: topK, percent_base: percentBase,
-        total_minutes: Math.round(totalMinutesAll * 100) / 100,
+        scope,
+        line: line ?? null,
+        level,
+        metric,
+        from: fromISO,
+        to: toISO,
+        coverage_80_at: coverage80 >= 0 ? coverage80 + 1 : null,
+        total_minutes: Math.round(totalMinutesAll),
         total_count: totalCountAll,
-        parents: { l1: parentL1 ?? null },
-        line: line ?? null, line_field: lineField,
-        source,
       },
+      categories: out,
     });
   } catch (e: any) {
     const msg = e?.message || e?.toString?.() || (typeof e === "object" ? JSON.stringify(e) : String(e));
@@ -209,3 +248,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
+

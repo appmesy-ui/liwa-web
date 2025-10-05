@@ -14,18 +14,29 @@ type ParetoItem = {
   cumPct: number;
 };
 
-type ApiOk = {
+type ApiOkNew = {
   ok: true;
-  meta: {
-    scope: "total" | "line";
-    line?: string | null;
-    level: Level;
-    metric: Metric;
-    from?: string;
-    to?: string;
-    coverage_80_at?: number | null;
-  };
-  categories: ParetoItem[];
+  meta: any;
+  categories: Array<{
+    key?: string;
+    label?: string;
+    minutes?: number;
+    count?: number;
+    pct?: number;
+    cumPct?: number;
+  }>;
+};
+type ApiOkOld = {
+  ok: true;
+  meta: any;
+  rows: Array<{
+    rank?: number;
+    name?: string;
+    minutes?: number;
+    count?: number;
+    pct?: number;
+    pct_acc?: number;
+  }>;
 };
 type ApiErr = { ok: false; error: string };
 
@@ -48,7 +59,7 @@ export default function AvailabilityPareto({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<ParetoItem[]>([]);
-  const [meta, setMeta] = useState<ApiOk["meta"] | null>(null);
+  const [meta, setMeta] = useState<any | null>(null);
 
   // fetch
   useEffect(() => {
@@ -62,25 +73,45 @@ export default function AvailabilityPareto({
         url.searchParams.set("metric", metric);
         url.searchParams.set("top", String(topN));
         url.searchParams.set("only_classified", "true");
-        url.searchParams.set("to_yesterday", "true");
+        // ↑ si querés ver TODOS (pend + clasif), ponelo en "false"
+        // Para cuadrar con "Paro (no planificado)" podés excluir planificados:
+        // url.searchParams.set("planned", "exclude");
+
         if (line) {
           url.searchParams.set("scope", "line");
           url.searchParams.set("line", line);
+          url.searchParams.set("line_field", "line_code"); // o line_id según pases
         } else {
           url.searchParams.set("scope", "total");
         }
         if (parentL1) url.searchParams.set("parent_l1", parentL1);
-        if (parentL2) url.searchParams.set("parent_l2", parentL2);
         if (from) url.searchParams.set("from", from);
         if (to) url.searchParams.set("to", to);
 
         const res = await fetch(url.toString(), { cache: "no-store" });
-        const data: ApiOk | ApiErr = await res.json();
+        const data: ApiOkNew | ApiOkOld | ApiErr = await res.json();
         if (!alive) return;
         if (!("ok" in data) || data.ok !== true) throw new Error((data as ApiErr).error || "Error");
 
-        setItems(data.categories || []);
-        setMeta(data.meta || null);
+        // Soportar AMBOS formatos: categories (nuevo) o rows (viejo)
+        const rawCats: any[] =
+          (data as ApiOkNew).categories ??
+          (data as ApiOkOld).rows ??
+          [];
+
+        // Normalizar campos -> ParetoItem
+        const mapped: ParetoItem[] = rawCats.map((r: any, i: number) => {
+          const label = r.label ?? r.name ?? "—";
+          const minutes = Number(r.minutes ?? 0);
+          const count = Number(r.count ?? 0);
+          const pct = Number(r.pct ?? 0);
+          const cumPct = Number(r.cumPct ?? r.cum_pct ?? r.pct_acc ?? 0);
+          const key = r.key ?? `${i + 1}|${label}`;
+          return { key, label, minutes, count, pct, cumPct };
+        });
+
+        setItems(mapped);
+        setMeta((data as any).meta || null);
       } catch (e: any) {
         if (!alive) return;
         setError(e?.message || "Error");
@@ -179,7 +210,7 @@ export default function AvailabilityPareto({
 
       {!loading && !error && items.length === 0 && (
         <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-slate-300 text-sm">
-          No hay datos para este nivel/ruta. Prueba volver o cambiar la métrica.
+          No hay datos para los filtros seleccionados.
         </div>
       )}
 
