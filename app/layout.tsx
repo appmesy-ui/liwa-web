@@ -7,6 +7,15 @@ import type { Metadata, Viewport } from "next";
 import AppHeader from "../components/AppHeader";
 import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../lib/supabase-env";
+
+const supabase = createServerComponentClient(
+  { cookies },
+  {
+    supabaseUrl: SUPABASE_URL,
+    supabaseKey: SUPABASE_ANON_KEY,
+  }
+);
 
 export const metadata: Metadata = {
   title: "LIWA",

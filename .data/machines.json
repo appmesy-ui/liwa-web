@@ -1,0 +1,31 @@
+{
+  "M1": {
+    "machine_id": "5eab53cf-4a1e-46f3-bf0d-cb7162047991",
+    "machine_code": "M1",
+    "line_id": "3d0f1459-9986-4212-b5e8-11c2a1db3e27",
+    "plant_id": "35837416-7ad8-46c0-b959-8ef4c5f19fbb",
+    "org_id": "ba83e018-ef7c-4daa-aebf-c5557b1baccc"
+  },
+  "M2": {
+    "machine_id": "a1d756e0-75a2-4371-b034-557c16e6728c",
+    "machine_code": "M2",
+    "line_id": "3d0f1459-9986-4212-b5e8-11c2a1db3e27",
+    "plant_id": "35837416-7ad8-46c0-b959-8ef4c5f19fbb",
+    "org_id": "ba83e018-ef7c-4daa-aebf-c5557b1baccc"
+  },
+  "M5": {
+    "machine_id": "dea60d3e-f340-4037-8317-a97efb822b85",
+    "machine_code": "M5",
+    "line_id": "3d0f1459-9986-4212-b5e8-11c2a1db3e27",
+    "plant_id": "35837416-7ad8-46c0-b959-8ef4c5f19fbb",
+    "org_id": "ba83e018-ef7c-4daa-aebf-c5557b1baccc"
+  },
+  "M7": {
+    "machine_id": "c51c3d21-3461-42bb-b7b8-bde8ce944a71",
+    "machine_code": "M7",
+    "line_id": "3d0f1459-9986-4212-b5e8-11c2a1db3e27",
+    "plant_id": "35837416-7ad8-46c0-b959-8ef4c5f19fbb",
+    "org_id": "ba83e018-ef7c-4daa-aebf-c5557b1baccc"
+  }
+}
+

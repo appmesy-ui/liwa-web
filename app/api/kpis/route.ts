@@ -7,458 +7,317 @@ export const fetchCache = "force-no-store";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-/** Fila para la tabla de KPIs */
-type RowUI = {
-  line_code: string | null;
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase env vars for KPIs");
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    db: { schema: "liwa" },
+  });
+}
+
+// Turnos resueltos
+type ShiftRow = {
+  shift_instance_id: string;
+  org_id: string | null;
   plant_id: string | null;
-  planned_runtime_sec: number | null;
-  availability: number | null; // 0–1
-  performance: number | null;  // 0–1
-  quality: number | null;      // 0–1
-  oee: number | null;          // 0–1
-  trend_pp: number;            // delta en puntos porcentuales
-  // —— unidades (opcionales) ——
-  units_total?: number | null;
-  units_good?: number | null;
-  units_scrap?: number | null;
-  units_rework?: number | null;
+  starts_at: string;
+  ends_at: string;
 };
 
-type SeriesPointFlat = {
-  bucket_ts: string;
-  line_code: string | null;
-  oee: number | null; // 0–1
-};
-
-type OeeRow = {
-  line_id: string;
-  plant_id: string | null;
+// Base OEE por máquina+turno
+type BaseRow = {
+  shift_instance_id: string;
+  line_id: string | null;
+  machine_id: string | null;
+  good_units: number | null;
+  scrap_units: number | null;
   planned_time_s: number | null;
-  availability: number | null;
-  performance: number | null;
-  quality: number | null;
-  oee: number | null;
-  shift_instance_id: string;
+  run_time_s: number | null;
+  ideal_cycle_s: string | number | null;
+  quality: string | number | null;
+  performance: string | number | null;
+  availability: string | number | null;
 };
 
-type UnitsRow = {
+type LineRow = {
+  id: string;
+  code: string;
+};
+
+type LineAgg = {
   line_id: string;
-  shift_instance_id: string;
-  units_total: number | null;
-  units_good: number | null;
-  units_scrap: number | null;
-  units_rework: number | null;
+  plant_id: string | null;
+  // tiempo planificado de línea (único por turno+línea)
+  linePlanned: number;
+  // unidades totales (para info)
+  good: number;
+  scrap: number;
+  // sumatorios ponderados de A, P, Q
+  wA: number;
+  wP: number;
+  wQ: number;
+  weight: number;
+  // para no sumar dos veces el mismo turno en linePlanned
+  seenShifts: Set<string>;
 };
 
 export async function GET(req: NextRequest) {
+  const supabase = admin();
+
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    if (!url || !serviceKey) {
-      return NextResponse.json(
-        { ok: false, error: "Faltan NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY" },
-        { status: 500 }
-      );
-    }
-
-    const admin = createClient(url, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: { headers: { "X-Client-Info": "liwa-kpis" } },
-      db: { schema: "liwa" },
-    });
-
-    // ========= Parámetros =========
     const { searchParams } = new URL(req.url);
-    const toISO = searchParams.get("to") ?? new Date().toISOString();
-    const fromISO = searchParams.get("from") ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const step = (searchParams.get("step") ?? "all") as "all" | "kpis" | "series";
-    const lineFilter = searchParams.get("line");
-    const orgId   = searchParams.get("org_id");
-    const plantId = searchParams.get("plant_id");
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
 
-    const fromMs = new Date(fromISO).getTime();
-    const toMs   = new Date(toISO).getTime();
-    const windowMs = Math.max(0, toMs - fromMs);
-    const bucket: "hour" | "day" = windowMs <= 3 * 24 * 3600 * 1000 ? "hour" : "day";
+    const fromTs = from ? new Date(from) : new Date(Date.now() - 24 * 3600 * 1000);
+    const toTs = to ? new Date(to) : new Date();
 
-    const prevToISO = new Date(fromMs).toISOString();
-    const prevFromISO = new Date(fromMs - windowMs).toISOString();
+    // ====================================
+    // 1) Turnos que pisan la ventana [from,to] usando v_shift_instances_resolved
+    // ====================================
+    const fromIso = fromTs.toISOString();
+    const toIso = toTs.toISOString();
 
-    const toNum = (v: any) => Number(v ?? 0);
-    const clamp01 = (n?: number | null) => Math.max(0, Math.min(1, Number.isFinite(n as number) ? (n as number) : 0));
+    let shiftQuery = supabase
+      .from("v_shift_instances_resolved")
+      .select("shift_instance_id, org_id, plant_id, starts_at, ends_at")
+      .lt("starts_at", toIso)
+      .gt("ends_at", fromIso);
 
-    const fmtBucket = (iso: string) => {
-      const d = new Date(iso);
-      if (bucket === "day") {
-        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString();
-      }
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours())).toISOString();
-    };
+    const { data: shifts, error: errShifts } = await shiftQuery;
 
-    // ========= Shifts que se solapan con [from,to) =========
-    const findShiftIds = async (from: string, to: string) => {
-      // Esta vista trae al menos shift_instance_id, starts_at, ends_at
-      let q = admin
-        .from("v_shift_instances_resolved")
-        .select("shift_instance_id, starts_at, ends_at, org_id, plant_id")
-        .lt("starts_at", to)
-        .gt("ends_at", from);
-
-      if (orgId)   q = q.eq("org_id", orgId);
-      if (plantId) q = q.eq("plant_id", plantId);
-
-      const { data, error } = await q;
-      if (error) throw error;
-
-      const ids = (data ?? []).map((r: any) => r.shift_instance_id as string);
-      const timeByShift = new Map<string, { start: string; end: string }>();
-      for (const r of data ?? []) {
-        timeByShift.set((r as any).shift_instance_id, { start: (r as any).starts_at, end: (r as any).ends_at });
-      }
-      return { ids, timeByShift };
-    };
-
-    // ========= OEE por turno =========
-    const fetchOeeByShifts = async (shiftIds: string[]) => {
-      if (!shiftIds.length) return [] as OeeRow[];
-      let q = admin
-        .from("v_oee_by_shift")
-        .select("line_id, plant_id, planned_time_s, availability, performance, quality, oee, shift_instance_id")
-        .in("shift_instance_id", shiftIds)
-        .limit(50000);
-      if (plantId) q = q.eq("plant_id", plantId);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data ?? []) as unknown as OeeRow[];
-    };
-
-    // === DEDUPE CRÍTICO ===
-    // Algunas instalaciones devuelven varias filas por (shift_instance_id, line_id).
-    // Nos quedamos con UNA fila por par, priorizando la de mayor planned_time_s.
-    function dedupeByShiftLine(rows: OeeRow[]): OeeRow[] {
-      const map = new Map<string, OeeRow>();
-      for (const r of rows) {
-        const k = `${r.shift_instance_id}|${r.line_id}`;
-        const cur = map.get(k);
-        if (!cur || toNum(r.planned_time_s) > toNum(cur.planned_time_s)) {
-          map.set(k, r);
-        }
-      }
-      return Array.from(map.values());
+    if (errShifts) {
+      console.error("Error loading shifts for KPIs:", errShifts);
+      throw errShifts;
     }
 
-    // ========= Unidades por turno (good/scrap) =========
-    const fetchUnitsByShifts = async (shiftIds: string[]) => {
-      if (!shiftIds.length) return [] as UnitsRow[];
-      let q = admin
-        .from("v_oee_by_shift")
-        .select("line_id, shift_instance_id, good_units, scrap_units, plant_id")
-        .in("shift_instance_id", shiftIds)
-        .limit(50000);
-      if (plantId) q = q.eq("plant_id", plantId);
-      const { data, error } = await q;
-      if (error) throw error;
-
-      const rows: UnitsRow[] = (data ?? []).map((r: any) => ({
-        line_id: r.line_id,
-        shift_instance_id: r.shift_instance_id,
-        units_good: Number(r.good_units ?? 0),
-        units_scrap: Number(r.scrap_units ?? 0),
-        units_total: Number(r.good_units ?? 0) + Number(r.scrap_units ?? 0),
-        units_rework: null,
-      }));
-      return rows;
-    };
-
-    // ========= Códigos de línea =========
-    const fetchLineCodes = async (lineIds: string[]) => {
-      if (!lineIds.length) return new Map<string, string | null>();
-      const { data, error } = await admin
-        .from("lines")
-        .select("id, code")
-        .in("id", Array.from(new Set(lineIds)));
-      if (error) throw error;
-      const map = new Map<string, string | null>();
-      for (const l of (data ?? []) as any[]) map.set(l.id, l.code ?? null);
-      return map;
-    };
-
-    // ========= Agregador con RECORTE por solape con [from,to) =========
-    function aggregateByLine(
-      rows: OeeRow[],
-      times: Map<string, { start: string; end: string }>,
-      fromMs: number,
-      toMs: number
-    ) {
-      type Acc = {
-        plant_id: string | null;
-        totalPlan: number;
-        sumA: number;
-        sumP: number;
-        sumQ: number;
-        sumO: number;
-      };
-      const byLine = new Map<string, Acc>();
-
-      for (const r of rows) {
-        const ts = times.get(r.shift_instance_id);
-        if (!ts) continue;
-
-        const sMs = new Date(ts.start).getTime();
-        const eMs = new Date(ts.end).getTime();
-        const overlapSec = Math.max(0, Math.min(eMs, toMs) - Math.max(sMs, fromMs)) / 1000;
-        const shiftSec   = Math.max(0, eMs - sMs) / 1000;
-        if (overlapSec <= 0 || shiftSec <= 0) continue;
-
-        // peso proporcional al solape
-        const frac = overlapSec / shiftSec;
-        const w = Math.max(0, toNum(r.planned_time_s)) * frac;
-        if (!w) continue;
-
-        const lid = r.line_id;
-        if (!byLine.has(lid)) {
-          byLine.set(lid, { plant_id: r.plant_id ?? null, totalPlan: 0, sumA: 0, sumP: 0, sumQ: 0, sumO: 0 });
-        }
-        const acc = byLine.get(lid)!;
-        acc.totalPlan += w;
-        acc.sumA += clamp01(r.availability) * w;
-        acc.sumP += clamp01(r.performance)  * w;
-        acc.sumQ += clamp01(r.quality)      * w;
-        acc.sumO += clamp01(r.oee)          * w;
-      }
-      return byLine;
-    }
-
-    // ========= Ventana actual =========
-    const { ids: nowShiftIds, timeByShift: nowTimes } = await findShiftIds(fromISO, toISO);
-    let   nowRows      = await fetchOeeByShifts(nowShiftIds);
-    const nowUnitsRows = await fetchUnitsByShifts(nowShiftIds);
-
-    // DEDUPE clave aquí
-    nowRows = dedupeByShiftLine(nowRows);
-
-    if (plantId) nowRows = nowRows.filter(r => (r.plant_id ?? null) === plantId);
-
-    // —— Techo físico para control (opcional)
-    let planned_ceiling_sec = 0;
-    for (const r of nowRows) {
-      const ts = nowTimes.get(r.shift_instance_id);
-      if (!ts) continue;
-      const sMs = new Date(ts.start).getTime();
-      const eMs = new Date(ts.end).getTime();
-      planned_ceiling_sec += Math.max(0, Math.min(eMs, toMs) - Math.max(sMs, fromMs)) / 1000;
-    }
-
-    const nowAgg = aggregateByLine(nowRows, nowTimes, fromMs, toMs);
-
-    // Si no hay datos, devolvemos vacío pero con pending
-    if (nowAgg.size === 0 && nowUnitsRows.length === 0) {
-      const pending = await countPending(admin as any, fromISO, toISO, lineFilter, orgId, plantId);
-      const payload: any = {
-        ok: true, pending, rows: [], series: [],
-        planned_sum_sec: 0, planned_ceiling_sec: 0, planned_overflow: false, planned_overflow_pct: 0
-      };
-      if (step === "kpis") delete payload.series;
-      if (step === "series") delete payload.rows;
-      return NextResponse.json(payload);
-    }
-
-    // ========= Ventana anterior (tendencia) =========
-    const { ids: prevShiftIds, timeByShift: prevTimes } = await findShiftIds(prevFromISO, prevToISO);
-    let prevRows = await fetchOeeByShifts(prevShiftIds);
-    prevRows = dedupeByShiftLine(prevRows);
-    if (plantId) prevRows = prevRows.filter(r => (r.plant_id ?? null) === plantId);
-    const prevAgg = aggregateByLine(prevRows, prevTimes, new Date(prevFromISO).getTime(), new Date(prevToISO).getTime());
-
-    // ========= Códigos de línea =========
-    const allLineIds = [
-      ...new Set([
-        ...nowRows.map(r => r.line_id),
-        ...prevRows.map(r => r.line_id),
-      ]),
-    ];
-    const codeById = await fetchLineCodes(allLineIds);
-
-    // ========= Series (OEE por bucket, con solape) =========
-    type BAcc = { w: number; sumO: number; t: string };
-    const byLineBucket = new Map<string, Map<string, BAcc>>();
-    for (const r of nowRows) {
-      const ts = nowTimes.get(r.shift_instance_id);
-      if (!ts) continue;
-      const sMs = new Date(ts.start).getTime();
-      const eMs = new Date(ts.end).getTime();
-
-      const overlapMs = Math.max(0, Math.min(eMs, toMs) - Math.max(sMs, fromMs));
-      if (overlapMs <= 0) continue;
-
-      const key = fmtBucket(new Date(Math.max(sMs, fromMs)).toISOString());
-      const lid = r.line_id;
-      const w = Math.max(1, overlapMs / 1000);
-      const o = clamp01(r.oee);
-
-      if (!byLineBucket.has(lid)) byLineBucket.set(lid, new Map());
-      const inner = byLineBucket.get(lid)!;
-      if (!inner.has(key)) inner.set(key, { w: 0, sumO: 0, t: key });
-      const acc = inner.get(key)!;
-      acc.w += w;
-      acc.sumO += o * w;
-    }
-    const series: SeriesPointFlat[] = [];
-    for (const [lid, bucketMap] of byLineBucket.entries()) {
-      const line_code = codeById.get(lid) ?? null;
-      for (const b of Array.from(bucketMap.values()).sort((a, b) => a.t.localeCompare(b.t))) {
-        const oee = b.w ? b.sumO / b.w : 0;
-        series.push({ bucket_ts: b.t, line_code, oee });
-      }
-    }
-
-    // ========= Unidades ponderadas por solape (mismo criterio) =========
-    const unitsAgg = (() => {
-      type UAcc = { total: number; good: number; scrap: number; rework: number };
-      const map = new Map<string, UAcc>();
-      for (const r of nowUnitsRows) {
-        const ts = nowTimes.get(r.shift_instance_id);
-        if (!ts) continue;
-        const sMs = new Date(ts.start).getTime();
-        const eMs = new Date(ts.end).getTime();
-        const overlapMs = Math.max(0, Math.min(eMs, toMs) - Math.max(sMs, fromMs));
-        const shiftMs   = Math.max(0, eMs - sMs);
-        if (overlapMs <= 0 || shiftMs <= 0) continue;
-        const frac = overlapMs / shiftMs;
-
-        const lid = r.line_id;
-        if (!map.has(lid)) map.set(lid, { total: 0, good: 0, scrap: 0, rework: 0 });
-        const a = map.get(lid)!;
-
-        const g = Math.max(0, toNum(r.units_good));
-        const s = Math.max(0, toNum(r.units_scrap));
-        const rw = Math.max(0, toNum(r.units_rework));
-        const t = r.units_total != null ? Math.max(0, toNum(r.units_total)) : g + s + rw;
-
-        a.good   += g  * frac;
-        a.scrap  += s  * frac;
-        a.rework += rw * frac;
-        a.total  += t  * frac;
-      }
-      return map;
-    })();
-
-    // ========= Filas con tendencia + unidades =========
-    let rows: RowUI[] = [];
-    let planned_sum_sec = 0;
-    for (const lid of new Set([...nowAgg.keys(), ...unitsAgg.keys()])) {
-      const acc = nowAgg.get(lid);
-      const code = codeById.get(lid) ?? null;
-
-      let curA: number | null = null;
-      let curP: number | null = null;
-      let curQ: number | null = null;
-      let curO: number | null = null;
-      let planned_runtime_sec: number | null = null;
-      let trend_pp = 0;
-
-      if (acc) {
-        const w = Math.max(1, acc.totalPlan);
-        curA = acc.sumA / w;
-        curP = acc.sumP / w;
-        curQ = acc.sumQ / w;
-        curO = acc.sumO / w;
-        planned_runtime_sec = acc.totalPlan;
-        planned_sum_sec += acc.totalPlan;
-
-        const prev = prevAgg.get(lid);
-        if (prev && prev.totalPlan > 0) {
-          const pw = prev.totalPlan;
-          const prevO = prev.sumO / pw;
-          trend_pp = (curO - prevO) * 100;
-        }
-      }
-
-      const u = unitsAgg.get(lid);
-      rows.push({
-        line_code: code,
-        plant_id: acc?.plant_id ?? null,
-        planned_runtime_sec,
-        availability: curA,
-        performance: curP,
-        quality: curQ,
-        oee: curO,
-        trend_pp: +trend_pp.toFixed(1),
-        units_total:  u ? Math.round(u.total)  : null,
-        units_good:   u ? Math.round(u.good)   : null,
-        units_scrap:  u ? Math.round(u.scrap)  : null,
-        units_rework: u ? Math.round(u.rework) : null,
+    if (!shifts || shifts.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        pending: 0,
+        planned_sum_sec: 0,
+        planned_ceiling_sec: 0,
+        planned_overflow: false,
+        planned_overflow_pct: 0,
+        rows: [],
+        series: [],
       });
     }
 
-    // Filtro por código de línea exacto (case-insensitive)
-    if (lineFilter) {
-      const needle = lineFilter.toUpperCase();
-      rows = rows.filter((x) => (x.line_code ?? "").toUpperCase() === needle);
+    const shiftsTyped = shifts as ShiftRow[];
+    const shiftIds = shiftsTyped.map((s) => s.shift_instance_id);
+    const plantId = shiftsTyped[0].plant_id;
+
+    const shiftById: Record<string, ShiftRow> = {};
+    for (const s of shiftsTyped) {
+      shiftById[s.shift_instance_id] = s;
     }
 
-    // Orden por OEE desc (faltantes al final)
-    rows.sort((a, b) => (b.oee ?? -1) - (a.oee ?? -1));
+    // ====================================
+    // 2) Base OEE por máquina+turno (vista v_oee_by_shift)
+    //    → ya trae A, P, Q por máquina+turno
+    // ====================================
+    const { data: base, error: errBase } = await supabase
+      .from("v_oee_by_shift")
+      .select(
+        "shift_instance_id, line_id, machine_id, good_units, scrap_units, planned_time_s, run_time_s, ideal_cycle_s, quality, performance, availability"
+      )
+      .in("shift_instance_id", shiftIds);
 
-    // Paros sin clasificar
-    const pending = await countPending(admin as any, fromISO, toISO, lineFilter, orgId, plantId);
+    if (errBase) {
+      console.error("Error loading v_oee_by_shift:", errBase);
+      throw errBase;
+    }
 
-    // —— Ceiling test flags ——
-    const tol = 60; // 60s de tolerancia
-    const planned_overflow = planned_sum_sec > planned_ceiling_sec + tol;
-    const planned_overflow_pct = planned_ceiling_sec > 0
-      ? ((planned_sum_sec - planned_ceiling_sec) / planned_ceiling_sec) * 100
+    if (!base || base.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        pending: 0,
+        planned_sum_sec: 0,
+        planned_ceiling_sec: 0,
+        planned_overflow: false,
+        planned_overflow_pct: 0,
+        rows: [],
+        series: [],
+      });
+    }
+
+    // ====================================
+    // 3) Líneas (para códigos L1, L2…)
+    // ====================================
+    const { data: lines, error: errLines } = await supabase
+      .from("lines")
+      .select("id, code");
+
+    if (errLines) {
+      console.error("Error loading lines:", errLines);
+      throw errLines;
+    }
+
+    const codeByLine: Record<string, string> = {};
+    (lines || []).forEach((ln) => {
+      const l = ln as LineRow;
+      codeByLine[l.id] = l.code;
+    });
+
+    // ====================================
+    // 4) Agregar por línea:
+    //    - Promedio ponderado de A, P, Q a partir de v_oee_by_shift
+    //    - Tiempo planificado de línea = solape turno+línea con [from,to], 1 vez por turno
+    // ====================================
+    const byLine = new Map<string, LineAgg>();
+
+    for (const rowAny of base as BaseRow[]) {
+      const lineId = rowAny.line_id;
+      if (!lineId) continue;
+
+      let agg = byLine.get(lineId);
+      if (!agg) {
+        agg = {
+          line_id: lineId,
+          plant_id: plantId,
+          linePlanned: 0,
+          good: 0,
+          scrap: 0,
+          wA: 0,
+          wP: 0,
+          wQ: 0,
+          weight: 0,
+          seenShifts: new Set<string>(),
+        };
+        byLine.set(lineId, agg);
+      }
+
+      const good = Number(rowAny.good_units ?? 0);
+      const scrap = Number(rowAny.scrap_units ?? 0);
+      const qVal =
+        rowAny.quality !== null && rowAny.quality !== undefined
+          ? Number(rowAny.quality)
+          : null;
+      const pVal =
+        rowAny.performance !== null && rowAny.performance !== undefined
+          ? Number(rowAny.performance)
+          : null;
+      const aVal =
+        rowAny.availability !== null && rowAny.availability !== undefined
+          ? Number(rowAny.availability)
+          : null;
+
+      agg.good += good;
+      agg.scrap += scrap;
+
+      const shiftId = rowAny.shift_instance_id;
+      const shift = shiftById[shiftId];
+      if (!shift) continue;
+
+      const sStart = new Date(shift.starts_at);
+      const sEnd = new Date(shift.ends_at);
+
+      const overlapStart = sStart < fromTs ? fromTs : sStart;
+      const overlapEnd = sEnd > toTs ? toTs : sEnd;
+      const diffMs = overlapEnd.getTime() - overlapStart.getTime();
+      const plannedOverlapSec = diffMs > 0 ? diffMs / 1000 : 0;
+
+      if (plannedOverlapSec <= 0) {
+        continue;
+      }
+
+      // Ponderamos A, P, Q de esta máquina por el tiempo de solape
+      if (aVal !== null) agg.wA += aVal * plannedOverlapSec;
+      if (pVal !== null) agg.wP += pVal * plannedOverlapSec;
+      if (qVal !== null) agg.wQ += qVal * plannedOverlapSec;
+      agg.weight += plannedOverlapSec;
+
+      // Tiempo planificado de línea: solo una vez por turno+línea
+      if (!agg.seenShifts.has(shiftId)) {
+        agg.linePlanned += plannedOverlapSec;
+        agg.seenShifts.add(shiftId);
+      }
+    }
+
+    const rowsOut: any[] = [];
+    let plannedSumSec = 0;
+
+    for (const [lineId, agg] of byLine.entries()) {
+      const totalUnits = agg.good + agg.scrap;
+
+      const quality =
+        agg.weight > 0 && agg.wQ > 0 ? agg.wQ / agg.weight : null;
+      const performance =
+        agg.weight > 0 && agg.wP > 0 ? agg.wP / agg.weight : null;
+      const availability =
+        agg.weight > 0 && agg.wA > 0 ? agg.wA / agg.weight : null;
+
+      let oee: number | null = null;
+      if (
+        quality != null &&
+        performance != null &&
+        availability != null
+      ) {
+        oee = quality * performance * availability;
+      }
+
+      plannedSumSec += agg.linePlanned;
+
+      rowsOut.push({
+        line_code: (codeByLine[lineId] || "—").toUpperCase(),
+        plant_id: agg.plant_id,
+        planned_runtime_sec: agg.linePlanned,
+        availability,
+        performance,
+        quality,
+        oee,
+        trend_pp: 0,
+        units_total: totalUnits,
+        units_good: agg.good,
+        units_scrap: agg.scrap,
+        units_rework: 0,
+      });
+    }
+
+    rowsOut.sort((a, b) => a.line_code.localeCompare(b.line_code));
+
+    // ====================================
+    // 5) Overflow planificado y serie simple
+    // ====================================
+    const plannedCeilingSec =
+      (toTs.getTime() - fromTs.getTime()) / 1000;
+
+    const plannedOverflow =
+      plannedCeilingSec > 0 && plannedSumSec > plannedCeilingSec;
+
+    const plannedOverflowPct = plannedCeilingSec
+      ? (plannedSumSec / plannedCeilingSec - 1) * 100
       : 0;
 
-    const payload: any = {
+    const series = rowsOut.map((r) => ({
+      bucket_ts: fromTs.toISOString(),
+      line_code: r.line_code,
+      oee: r.oee ?? null,
+    }));
+
+    return NextResponse.json({
       ok: true,
-      pending,
-      planned_sum_sec: Math.round(planned_sum_sec),
-      planned_ceiling_sec: Math.round(planned_ceiling_sec),
-      planned_overflow,
-      planned_overflow_pct: Number(planned_overflow_pct.toFixed(2)),
-    };
-    if (step === "all" || step === "kpis")  payload.rows = rows;
-    if (step === "all" || step === "series") payload.series = series;
-
-    return NextResponse.json(payload);
+      pending: 0,
+      planned_sum_sec: plannedSumSec,
+      planned_ceiling_sec: plannedCeilingSec,
+      planned_overflow: plannedOverflow,
+      planned_overflow_pct: plannedOverflowPct,
+      rows: rowsOut,
+      series,
+    });
   } catch (err: any) {
-    console.error("API /kpis error:", err?.message || err);
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    console.error("KPIs endpoint error:", err);
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unexpected error" },
+      { status: 500 }
+    );
   }
-}
-
-/** Conteo de paros sin clasificar en el rango [fromISO, toISO) */
-async function countPending(
-  admin: any,
-  fromISO: string,
-  toISO: string,
-  lineFilter: string | null,
-  orgId: string | null,
-  plantId: string | null
-): Promise<number> {
-  const baseFilters = (q: any) => {
-    let qq = q
-      .eq("is_pending", true)
-      .lt("started_at", toISO)
-      .or(`ended_at.is.null,ended_at.gte.${fromISO}`);
-    if (orgId)   qq = qq.eq("org_id", orgId);
-    if (plantId) qq = qq.eq("plant_id", plantId);
-    return qq;
-  };
-
-  if (!lineFilter) {
-    const { count, error } = await baseFilters(
-      admin.from("v_pending_events_ui").select("id", { count: "exact" })
-    ).range(0, 0);
-    if (error && (error as any).code !== "PGRST116") throw error;
-    return count ?? 0;
-  }
-
-  const pat = `%${lineFilter}%`;
-  const { count, error } = await baseFilters(
-    admin.from("v_pending_events_ui").select("id", { count: "exact" }).ilike("line_code", pat)
-  ).range(0, 0);
-  if (error && (error as any).code !== "PGRST116") throw error;
-  return count ?? 0;
 }

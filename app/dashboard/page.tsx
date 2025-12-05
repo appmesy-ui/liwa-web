@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState, ReactNode } from "react";
@@ -18,6 +19,7 @@ type KpiRow = {
   trend_pp?: number | null;
   spark?: number[] | null;
 };
+
 type KpisResponse = {
   ok?: boolean;
   rows?: KpiRow[];
@@ -30,7 +32,9 @@ type KpisResponse = {
 ========================= */
 const clamp01 = (n?: number | null) =>
   Math.max(0, Math.min(1, Number.isFinite(n as number) ? (n as number) : 0));
+
 const pct = (n?: number | null) => `${(clamp01(n) * 100).toFixed(1)}%`;
+
 const dtf = new Intl.DateTimeFormat("es-ES", {
   timeZone: "UTC",
   year: "2-digit",
@@ -52,8 +56,10 @@ function Sparkline({
   width?: number;
   height?: number;
 }) {
-  if (!values || values.length === 0)
+  if (!values || values.length === 0) {
     return <svg width={width} height={height} aria-label="sparkline" />;
+  }
+
   const v = values.map((x) =>
     clamp01(Number(x) > 1 ? Number(x) / 100 : Number(x))
   );
@@ -65,6 +71,7 @@ function Sparkline({
   const min = Math.min(...v);
   const range = Math.max(0.0001, max - min);
   const stepX = n > 1 ? w / (n - 1) : 0;
+
   const pts = v.map(
     (val, i) =>
       [pad + i * stepX, pad + (1 - (range ? (val - min) / range : 0)) * h] as const
@@ -72,8 +79,10 @@ function Sparkline({
   const d = pts
     .map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`))
     .join(" ");
+
   const last = v[n - 1] ?? 0;
   const color = last < 0.75 ? "#f43f5e" : last < 0.85 ? "#f59e0b" : "#10b981";
+
   return (
     <svg
       width={width}
@@ -131,6 +140,7 @@ function LineCardMobile({
       : last < 0.85
       ? "bg-amber-400/20 text-amber-200"
       : "bg-emerald-400/20 text-emerald-200";
+
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -159,7 +169,6 @@ function LineCardMobile({
 
 /* =========================
    KPI Card (A, P, Q) + Link
-   (hover/ring alineado a la card)
 ========================= */
 function KpiCard({
   title,
@@ -179,7 +188,6 @@ function KpiCard({
         "rounded-2xl border p-5 backdrop-blur",
         "bg-gradient-to-br from-white/[0.05] to-white/[0.02]",
         "border-white/10",
-        // Hover/focus perfectamente alineado a la card
         "transition-colors",
         "group-hover:border-emerald-400/45",
         "group-hover:from-white/[0.07] group-hover:to-white/[0.03]",
@@ -225,7 +233,6 @@ function KpiCardLink({
   value: string;
   subtitle?: string;
 }) {
-  // El Link envuelve la card para que el hover/focus coincida exactamente con su borde.
   return (
     <Link
       href={href}
@@ -238,8 +245,7 @@ function KpiCardLink({
 }
 
 /* =========================
-   OEE HERO (NO CLICABLE)
-   – Gauge más amplio (200px)
+   OEE HERO
 ========================= */
 function OeeHero({
   oee,
@@ -261,11 +267,23 @@ function OeeHero({
   return (
     <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-5 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.6)]">
       <div className="flex flex-col md:flex-row items-stretch gap-6">
-        {/* Gauge más amplio */}
+        {/* Gauge */}
         <div className="relative shrink-0 self-center md:self-auto w-[200px] h-[200px]">
-          <svg width="200" height="200" viewBox="0 0 140 140" aria-label="OEE gauge">
+          <svg
+            width="200"
+            height="200"
+            viewBox="0 0 140 140"
+            aria-label="OEE gauge"
+          >
             {/* track */}
-            <circle cx="70" cy="70" r={radius} stroke="rgba(255,255,255,0.12)" strokeWidth={strokeW} fill="none" />
+            <circle
+              cx="70"
+              cy="70"
+              r={radius}
+              stroke="rgba(255,255,255,0.12)"
+              strokeWidth={strokeW}
+              fill="none"
+            />
             {/* progreso */}
             <defs>
               <linearGradient id="oeeGrad" x1="0" x2="1" y1="0" y2="1">
@@ -285,7 +303,7 @@ function OeeHero({
               strokeDasharray={`${progress} ${remainder}`}
               transform="rotate(-90 70 70)"
             />
-            {/* disco central para contraste */}
+            {/* disco central */}
             <circle cx="70" cy="70" r={innerR} fill="rgba(2,6,23,0.88)" />
           </svg>
 
@@ -301,7 +319,7 @@ function OeeHero({
           </div>
         </div>
 
-        {/* Panel de KPIs (A, P, Q) */}
+        {/* KPIs A/P/Q */}
         <div className="grow grid grid-cols-1 sm:grid-cols-3 md:grid-cols-3 gap-4">
           {children}
         </div>
@@ -311,7 +329,7 @@ function OeeHero({
 }
 
 /* =========================
-   Página
+   Página Dashboard
 ========================= */
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
@@ -331,7 +349,7 @@ export default function DashboardPage() {
 
   const [seriesByLine, setSeriesByLine] = useState<Record<string, number[]>>({});
 
-  // --- filtro por línea ---
+  // filtro por línea
   const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
 
   const lineCodes = useMemo(() => {
@@ -354,6 +372,7 @@ export default function DashboardPage() {
       return next;
     });
   };
+
   const selectAll = () => setSelectedLines(new Set(lineCodes));
   const selectNone = () => setSelectedLines(new Set());
 
@@ -397,9 +416,7 @@ export default function DashboardPage() {
     })();
   }, [hydrated, supabase]);
 
-  // ========================
-  //  Fetch KPIs (A/P/Q/OEE) + series
-  // ========================
+  // Fetch KPIs
   useEffect(() => {
     if (!hydrated || !fromISO || !toISO) return;
     let mounted = true;
@@ -418,17 +435,16 @@ export default function DashboardPage() {
         setLoading(true);
         setErr(null);
 
-        // 1) intento con rango
         const q = new URLSearchParams({
           from: fromISO,
           to: toISO,
           step: "all",
         }).toString();
+
         let res = await fetch(`/api/kpis?${q}`);
         let json = (await parseJsonLoosely(res)) as KpisResponse | null;
 
-        // si viene vacío, 2) intento sin rango
-        if (!json || (!Array.isArray(json.rows) || json.rows.length === 0)) {
+        if (!json || !Array.isArray(json.rows) || json.rows.length === 0) {
           const res2 = await fetch(`/api/kpis`);
           const json2 = (await parseJsonLoosely(res2)) as KpisResponse | null;
           if (json2) json = json2;
@@ -445,7 +461,6 @@ export default function DashboardPage() {
             .sort((a, b) => (a.line_code || "").localeCompare(b.line_code || ""))
         );
 
-        // series (usa row.spark si viene)
         const by: Record<string, number[]> = {};
         for (const r of kRows) {
           const code = (r.line_code || "—").toUpperCase();
@@ -489,9 +504,7 @@ export default function DashboardPage() {
     };
   }, [hydrated, fromISO, toISO]);
 
-  // ========================
-  //  Contador de pendientes
-  // ========================
+  // Contador de pendientes
   useEffect(() => {
     if (!fromISO || !toISO) return;
     let alive = true;
@@ -516,7 +529,6 @@ export default function DashboardPage() {
     };
   }, [fromISO, toISO]);
 
-  // usar todas las líneas si aún no hay selección
   const rowsForAgg = useMemo(
     () => (selectedLines.size ? rowsFiltered : rows),
     [selectedLines.size, rowsFiltered, rows]
@@ -562,11 +574,18 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto py-4 flex flex-wrap gap-3 items-center justify-between">
           <div className="flex items-center gap-4">
             <Image src="/liwa-logo.svg" alt="LIWA" width={132} height={56} priority />
-            <div className="hidden md:block text-sm text-slate-400">by TecnoFab</div>
+            <div className="hidden md:block text-sm text-slate-400">
+              by TecnoFab
+            </div>
           </div>
+
           <div className="flex items-center gap-3 text-sm flex-wrap">
             {orgName && <span className="text-slate-300">{orgName}</span>}
-            {userEmail && <span className="hidden md:block text-slate-400">{userEmail}</span>}
+            {userEmail && (
+              <span className="hidden md:block text-slate-400">
+                {userEmail}
+              </span>
+            )}
             {fromISO && toISO && (
               <span className="text-slate-400/80">
                 {range === "24h"
@@ -574,9 +593,11 @@ export default function DashboardPage() {
                   : range === "7d"
                   ? "Últimos 7 días"
                   : "Últimos 30 días"}{" "}
-                · {dtf.format(new Date(fromISO))} → {dtf.format(new Date(toISO))}
+                · {dtf.format(new Date(fromISO))} →{" "}
+                {dtf.format(new Date(toISO))}
               </span>
             )}
+
             <div className="flex items-center gap-1.5">
               <button className={rangeBtn("24h")} onClick={() => setRange("24h")}>
                 24h
@@ -588,12 +609,21 @@ export default function DashboardPage() {
                 30d
               </button>
             </div>
+
+            {/* Botón Reporting */}
+            <Link
+              href="/dashboard/reporting"
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-4 py-2 text-sm shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]"
+            >
+              Reporting
+            </Link>
           </div>
         </div>
       </header>
 
+      {/* Contenido principal */}
       <section className="max-w-7xl mx-auto px-5 py-8">
-        {/* OEE HERO con A/P/Q adentro (clicables) */}
+        {/* OEE HERO con A/P/Q */}
         <div className="mb-8">
           <OeeHero oee={agg?.oee} loading={!hydrated || loading}>
             <KpiCardLink
@@ -661,12 +691,16 @@ export default function DashboardPage() {
         {/* KPIs por línea */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 mb-8 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold tracking-tight">KPIs por línea</h2>
+            <h2 className="text-lg font-semibold tracking-tight">
+              KPIs por línea
+            </h2>
             <div className="text-sm text-slate-400">
               {loading
                 ? "Cargando…"
                 : `${(selectedLines.size ? rowsFiltered.length : rows.length)} línea${
-                    (selectedLines.size ? rowsFiltered.length : rows.length) === 1 ? "" : "s"
+                    (selectedLines.size ? rowsFiltered.length : rows.length) === 1
+                      ? ""
+                      : "s"
                   }`}
             </div>
           </div>
@@ -692,8 +726,17 @@ export default function DashboardPage() {
                   const oee = clamp01(r.oee);
                   const serie = seriesByLine[code] || [];
                   let trendPP: number | null = null;
-                  if (serie.length >= 2) trendPP = (serie[serie.length - 1] - serie[0]) * 100;
-                  const arrow = trendPP == null ? "—" : trendPP > 0 ? "▲" : trendPP < 0 ? "▼" : "—";
+                  if (serie.length >= 2) {
+                    trendPP = (serie[serie.length - 1] - serie[0]) * 100;
+                  }
+                  const arrow =
+                    trendPP == null
+                      ? "—"
+                      : trendPP > 0
+                      ? "▲"
+                      : trendPP < 0
+                      ? "▼"
+                      : "—";
                   const color =
                     trendPP == null
                       ? "text-slate-400"
@@ -702,7 +745,10 @@ export default function DashboardPage() {
                       : trendPP < 0
                       ? "text-rose-400"
                       : "text-slate-400";
-                  const ppText = trendPP == null ? "—" : `${Math.abs(trendPP).toFixed(1)} pts`;
+                  const ppText =
+                    trendPP == null
+                      ? "—"
+                      : `${Math.abs(trendPP).toFixed(1)} pts`;
                   return (
                     <tr
                       key={code}
@@ -716,7 +762,9 @@ export default function DashboardPage() {
                       <td className="py-3 pl-4">
                         <div className="flex items-center justify-end gap-2">
                           <Sparkline values={serie} />
-                          <span className={`inline-flex items-center gap-1 text-xs ${color}`}>
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs ${color}`}
+                          >
                             {arrow} {ppText}
                           </span>
                         </div>

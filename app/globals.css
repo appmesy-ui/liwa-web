@@ -5,7 +5,60 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ajustes suaves globales */
-:root { color-scheme: light; }
+/* ===== Tema ===== */
+:root { color-scheme: dark; }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+
+/* ===== Formularios en dark (mejora visual) ===== */
+@layer base {
+  :root {
+    --liwa-input-bg: #0b1220;      /* fondo sutil oscuro */
+    --liwa-input-br: #334155;      /* borde (slate-600) */
+    --liwa-input-tx: #e5e7eb;      /* texto (slate-200) */
+    --liwa-input-ph: #94a3b8;      /* placeholder (slate-400) */
+    --liwa-ring:    #60a5fa;       /* azul foco */
+    --liwa-surface: #0a0f1a;       /* panel/modal */
+  }
+
+  label {
+    color: #cbd5e1;                /* slate-300 */
+    font-weight: 500;
+  }
+
+  input, textarea, select {
+    width: 100%;
+    color: var(--liwa-input-tx);
+    background-color: var(--liwa-input-bg);
+    border: 1px solid var(--liwa-input-br);
+    border-radius: 0.5rem;         /* 8px */
+    padding: 0.625rem 0.75rem;     /* 10px 12px */
+    line-height: 1.5;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--liwa-input-ph);
+  }
+
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--liwa-ring);
+    box-shadow: 0 0 0 3px rgba(96,165,250,0.35);
+  }
+
+  /* Chrome/Edge autofill */
+  input:-webkit-autofill,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: var(--liwa-input-tx);
+    transition: background-color 9999s ease-out 0s;
+  }
+
+  /* Asegura contraste general en modales/dialogs */
+  dialog, [role="dialog"] {
+    color: inherit;
+    background: var(--liwa-surface);
+  }
+}
