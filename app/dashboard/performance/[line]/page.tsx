@@ -1,3 +1,4 @@
+// app/dashboard/performance/[line]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -31,8 +32,8 @@ type SpeedSegment = {
 type PerfDetail = {
   line_code: string;
   performance?: number | null; // 0–1
-  planned_s?: number | null;
-  runtime_s?: number | null;
+  planned_s?: number | null;   // segundos planificados (turno)
+  runtime_s?: number | null;   // segundos efectivos en marcha
   speed_segments?: SpeedSegment[];
 };
 
@@ -44,10 +45,12 @@ type ApiResp =
 /* ===== Utils ===== */
 const clamp01 = (n?: number | null) =>
   Math.max(0, Math.min(1, Number.isFinite(n as number) ? (n as number) : 0));
+
 const pct = (n?: number | null, d = 2) =>
   n == null ? "—" : `${(clamp01(n) * 100).toFixed(d)}%`;
 
 const nf = new Intl.NumberFormat("es-ES");
+
 const dtf = new Intl.DateTimeFormat("es-ES", {
   timeZone: "UTC",
   month: "2-digit",
@@ -55,8 +58,16 @@ const dtf = new Intl.DateTimeFormat("es-ES", {
   hour: "2-digit",
   minute: "2-digit",
 });
+
+// Formateo de duración: si <60s mostramos en segundos, si no en h:mm
 const fmtHM = (s?: number | null) => {
   const v = Math.max(0, Math.floor(Number(s || 0)));
+
+  // Segmentos muy cortos: mostrar en segundos
+  if (v > 0 && v < 60) {
+    return `${v}s`;
+  }
+
   const h = Math.floor(v / 3600);
   const m = Math.floor((v % 3600) / 60);
   return `${h}h ${m.toString().padStart(2, "0")}m`;
@@ -109,12 +120,13 @@ export default function PerformanceByLinePage({
         setLoading(true);
         setErr(null);
 
-        // 1) KPI base desde /api/kpis (para performance si /api/performance no lo envía)
+        // 1) KPI base desde /api/kpis (misma fuente que el resumen)
         const uK = new URL("/api/kpis", window.location.origin);
         if (from) uK.searchParams.set("from", from);
         if (to) uK.searchParams.set("to", to);
         if (org_id) uK.searchParams.set("org_id", org_id);
         if (plant_id) uK.searchParams.set("plant_id", plant_id);
+        uK.searchParams.set("step", "kpis");
         const rK = await fetch(uK.toString(), { cache: "no-store" });
         const jK = (await safeJson(rK)) as any;
 
@@ -125,7 +137,19 @@ export default function PerformanceByLinePage({
             )
           : null;
 
-        // 2) Detalle real desde /api/performance
+        const perfFromRow: number | null =
+          typeof row?.performance === "number" ? row.performance : null;
+
+        const plannedFromRow: number | null =
+          typeof row?.planned_runtime_sec === "number"
+            ? row.planned_runtime_sec
+            : null;
+
+        // NUEVO: runtime desde la misma vista de KPIs (v_oee_by_shift → v_kpis_ui_cards)
+        const runtimeFromRow: number | null =
+          typeof row?.run_time_s === "number" ? row.run_time_s : null;
+
+        // 2) Detalle desde /api/performance (segmentos, runtime, etc.)
         const u = new URL("/api/performance", window.location.origin);
         u.searchParams.set("line", lineParam);
         if (from) u.searchParams.set("from", from);
@@ -136,24 +160,27 @@ export default function PerformanceByLinePage({
         const res = await fetch(u.toString(), { cache: "no-store" });
         const json = (await safeJson(res)) as ApiResp | null;
 
-        let det = json?.ok ? ((json as any).data as PerfDetail) : null;
-
-        if (det) {
-          if (det.performance == null && row?.performance != null) {
-            det = { ...det, performance: row.performance };
-          }
-        }
+        const det = json?.ok ? ((json as any).data as PerfDetail) : null;
 
         if (!mounted) return;
-        setDetail(
-          det || {
+
+        // Construimos el detalle final alineando con los KPIs de turno
+        if (det) {
+          setDetail({
+            ...det,
+            performance: det.performance ?? perfFromRow,
+            planned_s: plannedFromRow ?? det.planned_s ?? null,
+            runtime_s: runtimeFromRow ?? det.runtime_s ?? null,
+          });
+        } else {
+          setDetail({
             line_code: lineParam,
-            performance: row?.performance ?? null,
-            planned_s: null,
-            runtime_s: null,
+            performance: perfFromRow,
+            planned_s: plannedFromRow,
+            runtime_s: runtimeFromRow,
             speed_segments: [],
-          }
-        );
+          });
+        }
       } catch (e: any) {
         if (!mounted) return;
         setErr(e?.message ?? "Error inesperado");
@@ -239,7 +266,9 @@ export default function PerformanceByLinePage({
             Performance
           </Link>
           <span className="mx-2">/</span>
-          <span className="font-medium text-cyan-300">{detail?.line_code || lineParam}</span>
+          <span className="font-medium text-cyan-300">
+            {detail?.line_code || lineParam}
+          </span>
         </div>
         <Link
           href={`/dashboard/performance${qs}`}
@@ -251,10 +280,28 @@ export default function PerformanceByLinePage({
 
       {/* Resumen KPI */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-        <Card title="Performance (P)" value={pct(perf)} hint="Promedio ponderado" icon={<Gauge className="w-4 h-4" />} ring="ring-cyan-400/90" />
-        <Card title="Pérdida por velocidad" value={pct(loss)} hint="1 − P" />
-        <Card title="Tiempo planificado" value={fmtHM(detail?.planned_s)} icon={<Clock4 className="w-4 h-4" />} />
-        <Card title="Tiempo efectivo en marcha" value={fmtHM(detail?.runtime_s)} icon={<Rocket className="w-4 h-4" />} />
+        <Card
+          title="Performance (P)"
+          value={pct(perf)}
+          hint="Promedio ponderado"
+          icon={<Gauge className="w-4 h-4" />}
+          ring="ring-cyan-400/90"
+        />
+        <Card
+          title="Pérdida por velocidad"
+          value={pct(loss)}
+          hint="1 − P"
+        />
+        <Card
+          title="Tiempo planificado"
+          value={fmtHM(detail?.planned_s)}
+          icon={<Clock4 className="w-4 h-4" />}
+        />
+        <Card
+          title="Tiempo efectivo en marcha"
+          value={fmtHM(detail?.runtime_s)}
+          icon={<Rocket className="w-4 h-4" />}
+        />
       </div>
 
       {err && (
@@ -279,7 +326,9 @@ export default function PerformanceByLinePage({
       {/* Sparkline ideal vs real */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)] mb-6">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Ritmo por segmento</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            Ritmo por segmento
+          </h2>
           <span className="text-sm text-slate-400">
             {loading ? "Cargando…" : `${total} tramo${total === 1 ? "" : "s"}`}
           </span>
@@ -289,11 +338,17 @@ export default function PerformanceByLinePage({
           <div className="w-full h-56">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={28} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 11 }}
+                  minTickGap={28}
+                />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip
                   formatter={(v: any, n: string) =>
-                    n === "P" ? `${(v * 100).toFixed(1)}%` : `${nf.format(v)} u/min`
+                    n === "P"
+                      ? `${(v * 100).toFixed(1)}%`
+                      : `${nf.format(v)} u/min`
                   }
                   contentStyle={{
                     background: "rgba(2,6,23,.92)",
@@ -303,28 +358,53 @@ export default function PerformanceByLinePage({
                   }}
                 />
                 <Legend />
-                <Line type="monotone" dataKey="ideal" name="Ideal (u/min)" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="actual" name="Real (u/min)" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="P" name="P seg." dot={false} strokeWidth={1.5} />
+                <Line
+                  type="monotone"
+                  dataKey="ideal"
+                  name="Ideal (u/min)"
+                  dot={false}
+                  strokeWidth={2}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="actual"
+                  name="Real (u/min)"
+                  dot={false}
+                  strokeWidth={2}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="P"
+                  name="P seg."
+                  dot={false}
+                  strokeWidth={1.5}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="text-sm text-slate-400">Sin segmentos en el rango seleccionado.</div>
+          <div className="text-sm text-slate-400">
+            Sin segmentos en el rango seleccionado.
+          </div>
         )}
       </div>
 
       {/* Segmentos de velocidad (tabla + paginación) */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
         <div className="flex items-center justify-between mb-3 gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Segmentos de velocidad</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            Segmentos de velocidad
+          </h2>
 
           {/* Controles de paginación */}
           <div className="flex items-center gap-2">
             <label className="text-xs text-slate-400">Filas:</label>
             <select
               value={pageSize}
-              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
               className="bg-slate-900 border border-white/10 rounded-md px-2 py-1 text-xs"
             >
               <option value={10}>10</option>
@@ -393,32 +473,56 @@ export default function PerformanceByLinePage({
             <tbody>
               {loading && (
                 <tr>
-                  <td className="py-4 text-slate-400" colSpan={8}>Cargando…</td>
+                  <td className="py-4 text-slate-400" colSpan={8}>
+                    Cargando…
+                  </td>
                 </tr>
               )}
               {!loading && total === 0 && (
                 <tr>
-                  <td className="py-4 text-slate-400" colSpan={8}>Sin segmentos registrados.</td>
+                  <td className="py-4 text-slate-400" colSpan={8}>
+                    Sin segmentos registrados.
+                  </td>
                 </tr>
               )}
               {!loading &&
                 segments.map((s) => {
                   const gap =
-                    (s.ideal_rate_u_min ?? 0) > 0 && s.actual_rate_u_min != null
-                      ? Math.max(0, (s.ideal_rate_u_min ?? 0) - (s.actual_rate_u_min ?? 0))
+                    (s.ideal_rate_u_min ?? 0) > 0 &&
+                    s.actual_rate_u_min != null
+                      ? Math.max(
+                          0,
+                          (s.ideal_rate_u_min ?? 0) -
+                            (s.actual_rate_u_min ?? 0)
+                        )
                       : 0;
                   return (
-                    <tr key={s.id} className="border-t border-white/10 hover:bg-white/[0.06] transition-colors">
-                      <td className="py-3 pr-4">{dtf.format(new Date(s.started_at))}</td>
-                      <td className="py-3 px-4">{dtf.format(new Date(s.ended_at))}</td>
-                      <td className="py-3 px-4 text-right">{fmtHM(s.duration_s)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums">
-                        {s.ideal_rate_u_min == null ? "—" : `${nf.format(s.ideal_rate_u_min)} u/min`}
+                    <tr
+                      key={s.id}
+                      className="border-t border-white/10 hover:bg-white/[0.06] transition-colors"
+                    >
+                      <td className="py-3 pr-4">
+                        {dtf.format(new Date(s.started_at))}
+                      </td>
+                      <td className="py-3 px-4">
+                        {dtf.format(new Date(s.ended_at))}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {fmtHM(s.duration_s)}
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums">
-                        {s.actual_rate_u_min == null ? "—" : `${nf.format(s.actual_rate_u_min)} u/min`}
+                        {s.ideal_rate_u_min == null
+                          ? "—"
+                          : `${nf.format(s.ideal_rate_u_min)} u/min`}
                       </td>
-                      <td className="py-3 px-4 text-right tabular-nums">{nf.format(gap)} u/min</td>
+                      <td className="py-3 px-4 text-right tabular-nums">
+                        {s.actual_rate_u_min == null
+                          ? "—"
+                          : `${nf.format(s.actual_rate_u_min)} u/min`}
+                      </td>
+                      <td className="py-3 px-4 text-right tabular-nums">
+                        {nf.format(gap)} u/min
+                      </td>
                       <td className="py-3 px-4">{s.sku || "—"}</td>
                       <td className="py-3 px-4">{s.notes || "—"}</td>
                     </tr>
@@ -460,7 +564,9 @@ function Card({
         <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
           {value || "—"}
         </div>
-        {hint ? <div className="mt-1 text-xs text-slate-400">{hint}</div> : null}
+        {hint ? (
+          <div className="mt-1 text-xs text-slate-400">{hint}</div>
+        ) : null}
       </div>
       <div
         className={`pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition ring-2 ${ring}`}
@@ -492,8 +598,14 @@ function Stack100({
         <span>{rightLabel}</span>
       </div>
       <div className="h-4 w-full rounded-full overflow-hidden bg-slate-800">
-        <div className="h-full" style={{ width: `${pL}%`, backgroundColor: "#06b6d4" }} />
-        <div className="h-full" style={{ width: `${pR}%`, backgroundColor: "#64748b" }} />
+        <div
+          className="h-full"
+          style={{ width: `${pL}%`, backgroundColor: "#06b6d4" }}
+        />
+        <div
+          className="h-full"
+          style={{ width: `${pR}%`, backgroundColor: "#64748b" }}
+        />
       </div>
       <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
         <span className="tabular-nums">{pct(l)}</span>
@@ -502,4 +614,3 @@ function Stack100({
     </div>
   );
 }
-

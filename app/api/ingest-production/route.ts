@@ -9,9 +9,9 @@ type IngestPayload = {
   org_id: string;
   plant_id: string;
   machine_code: string;
-  window_start: string;
-  window_end: string;
-  status?: string;
+  window_start: string; // ISO
+  window_end: string;   // ISO
+  status?: string;      // "run", "stop", etc. (opcional)
   good_units_inc?: number;
   scrap_units_inc?: number;
 };
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
         scrap_units_inc = 0,
       } = item;
 
-      // Validación básica
+      // 0) Validación básica de campos obligatorios
       if (!org_id || !plant_id || !machine_code || !window_start || !window_end) {
         results.push({
           ok: false,
@@ -65,20 +65,33 @@ export async function POST(req: NextRequest) {
       const start = new Date(window_start);
       const end = new Date(window_end);
 
-      if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) {
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         results.push({
           ok: false,
-          error: "Invalid window_start/window_end",
+          error: "Invalid window_start/window_end (not a valid date)",
           machine_code,
         });
         continue;
       }
 
-      const durSec = (end.getTime() - start.getTime()) / 1000;
+      // 1) Duración real de la ventana en segundos, SIN inventar mínimos
+      const durationSecRaw = (end.getTime() - start.getTime()) / 1000;
+
+      if (!Number.isFinite(durationSecRaw) || durationSecRaw <= 0) {
+        // Si la duración no es positiva, no inventamos 1s ni nada: rechazamos el tick
+        results.push({
+          ok: false,
+          error: "Non-positive duration (window_end must be > window_start)",
+          machine_code,
+        });
+        continue;
+      }
+
+      const durSec = durationSecRaw;
       const startIso = start.toISOString();
       const endIso = end.toISOString();
 
-      // 1) Buscar máquina (para obtener line_id y ideal_cycle_s)
+      // 2) Buscar máquina (para obtener line_id e ideal_cycle_s)
       const { data: machines, error: errMach } = await supabase
         .from("machines")
         .select("id, line_id, ideal_cycle_s")
@@ -108,12 +121,12 @@ export async function POST(req: NextRequest) {
 
       const machine = machines[0];
 
-      // 2) Buscar turno que contenga window_start
-      //    2.1 Intentar turno-LÍNEA usando v_shift_instances_resolved (line_id)
-      //    2.2 Si no hay turno de línea, fallback a turno por planta (comportamiento anterior)
+      // 3) Buscar turno que contenga window_start
+      //    3.1 Intentar turno-LÍNEA
+      //    3.2 Fallback turno por planta (para no romper nada)
       let shiftId: string | null = null;
 
-      // 2.1 Turno-línea (caso “pro” correcto)
+      // 3.1 Turno-línea
       if (machine.line_id) {
         const { data: shiftsLine, error: errShiftLine } = await supabase
           .from("v_shift_instances_resolved")
@@ -132,7 +145,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 2.2 Fallback: turno por planta (para no romper nada si aún no hay turno-línea)
+      // 3.2 Fallback: turno por planta
       if (!shiftId) {
         const { data: shiftsPlant, error: errShiftPlant } = await supabase
           .from("v_shift_instances_resolved")
@@ -159,7 +172,10 @@ export async function POST(req: NextRequest) {
             : null;
       }
 
-      // 3) Construir fila para liwa.production
+      // 4) Construir fila para liwa.production
+      //    - planned_time_s = durSec: “tiempo de ventana”
+      //    - run_time_s = durSec sólo si status indica RUN
+      //    Aquí tampoco inventamos mínimos: si no está en RUN, runtime = 0.
       const row: any = {
         org_id,
         plant_id,
@@ -171,7 +187,7 @@ export async function POST(req: NextRequest) {
         good_units: good_units_inc,
         scrap_units: scrap_units_inc,
         planned_time_s: durSec,
-        run_time_s: status === "run" ? durSec : 0,
+        run_time_s: status.toLowerCase() === "run" ? durSec : 0,
         ideal_cycle_s: machine.ideal_cycle_s,
         notes: "ingested from Node-RED",
       };
@@ -214,3 +230,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

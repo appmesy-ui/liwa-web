@@ -68,6 +68,15 @@ type LineAgg = {
   seenShifts: Set<string>;
 };
 
+// Helper: limita un número a [0, 1] preservando null
+function clamp01OrNull(n: number | null | undefined): number | null {
+  if (n == null || !Number.isFinite(n)) return null;
+  const v = Number(n);
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = admin();
 
@@ -75,6 +84,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const from = searchParams.get("from");
     const to = searchParams.get("to");
+    const orgId = searchParams.get("org_id");
+    const plantFilter = searchParams.get("plant_id");
+    // NOTA: aquí no filtramos por línea; se agregan todas las líneas del rango
 
     const fromTs = from ? new Date(from) : new Date(Date.now() - 24 * 3600 * 1000);
     const toTs = to ? new Date(to) : new Date();
@@ -90,6 +102,13 @@ export async function GET(req: NextRequest) {
       .select("shift_instance_id, org_id, plant_id, starts_at, ends_at")
       .lt("starts_at", toIso)
       .gt("ends_at", fromIso);
+
+    if (orgId) {
+      shiftQuery = shiftQuery.eq("org_id", orgId);
+    }
+    if (plantFilter) {
+      shiftQuery = shiftQuery.eq("plant_id", plantFilter);
+    }
 
     const { data: shifts, error: errShifts } = await shiftQuery;
 
@@ -248,12 +267,16 @@ export async function GET(req: NextRequest) {
     for (const [lineId, agg] of byLine.entries()) {
       const totalUnits = agg.good + agg.scrap;
 
-      const quality =
+      const qualityRaw =
         agg.weight > 0 && agg.wQ > 0 ? agg.wQ / agg.weight : null;
-      const performance =
+      const performanceRaw =
         agg.weight > 0 && agg.wP > 0 ? agg.wP / agg.weight : null;
-      const availability =
+      const availabilityRaw =
         agg.weight > 0 && agg.wA > 0 ? agg.wA / agg.weight : null;
+
+      const quality = clamp01OrNull(qualityRaw);
+      const performance = clamp01OrNull(performanceRaw);
+      const availability = clamp01OrNull(availabilityRaw);
 
       let oee: number | null = null;
       if (

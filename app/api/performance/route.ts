@@ -26,19 +26,16 @@ type PerfDetail = {
   speed_segments?: SpeedSegment[];
 };
 
-/** Filas de OEE por turno (coinciden con /api/kpis) */
-type OeeRow = {
-  line_id: string;
-  plant_id: string | null;
-  planned_time_s: number | null;
-  availability: number | null; // 0–1
-  performance: number | null;  // 0–1
-  quality: number | null;      // 0–1
-  oee: number | null;          // 0–1
-  shift_instance_id: string;
-};
-
 type LineRow = { id: string; name: string | null; code: string | null };
+
+/** Pequeño helper para asegurar que P está entre 0 y 1 */
+function clamp01(n: number | null | undefined): number {
+  if (n == null || !Number.isFinite(n)) return 0;
+  const v = Number(n);
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -74,109 +71,147 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ====== Resolver line_id por nombre/código ======
-    async function resolveLine() {
-      const needle = lineParam;
-
-      // 1) nombre exacto (case-insensitive)
-      let { data, error } = await admin
-        .from("lines")
-        .select("id,name,code")
-        .ilike("name", needle)
-        .limit(1) as unknown as { data: LineRow[] | null; error: any };
-      if (error) throw error;
-
-      // 2) contiene en nombre
-      if (!data?.[0]) {
-        const { data: d2, error: e2 } = await admin
-          .from("lines")
-          .select("id,name,code")
-          .ilike("name", `%${needle}%`)
-          .limit(1) as unknown as { data: LineRow[] | null; error: any };
-        if (e2) throw e2;
-        data = d2;
-      }
-
-      // 3) por código
-      if (!data?.[0]) {
-        const { data: d3, error: e3 } = await admin
-          .from("lines")
-          .select("id,name,code")
-          .ilike("code", needle)
-          .limit(1) as unknown as { data: LineRow[] | null; error: any };
-        if (e3) throw e3;
-        data = d3;
-      }
-
-      const line = data?.[0];
-      return line ? ({ id: line.id, label: (line.name || line.code || needle) as string }) : null;
-    }
-
-    const line = await resolveLine();
-
-    // Siempre devolvemos al menos el label que vino por parámetro
+    // Estructura base que vamos a ir rellenando
     const detail: PerfDetail = {
-      line_code: line?.label || lineParam,
+      line_code: lineParam,
       performance: null,
       planned_s: null,
       runtime_s: null,
       speed_segments: [],
     };
 
-    // Si no resolvimos la línea, devolvemos estructura vacía (el frontend ya mezcla con /api/kpis)
+    // ====== 1) Leer KPIs desde /api/kpis para asegurar coherencia ======
+    try {
+      const proto =
+        req.headers.get("x-forwarded-proto") ||
+        (process.env.NODE_ENV === "production" ? "https" : "http");
+      const host = req.headers.get("host");
+
+      if (host) {
+        const baseUrl = `${proto}://${host}`;
+        const kpiUrl = new URL("/api/kpis", baseUrl);
+
+        // Pasamos los mismos filtros que nos llegan
+        if (fromISO) kpiUrl.searchParams.set("from", fromISO);
+        if (toISO) kpiUrl.searchParams.set("to", toISO);
+        if (orgId) kpiUrl.searchParams.set("org_id", orgId);
+        if (plantId) kpiUrl.searchParams.set("plant_id", plantId);
+        if (lineParam) kpiUrl.searchParams.set("line", lineParam);
+
+        const kpiResp = await fetch(kpiUrl.toString(), { cache: "no-store" });
+        if (kpiResp.ok) {
+          const kpiJson: any = await kpiResp.json();
+          const rows: any[] = kpiJson?.rows || kpiJson?.data?.rows || [];
+
+          if (rows.length > 0) {
+            // Si hay varias filas, intentamos casar por line_code
+            let row = rows[0];
+            if (rows.length > 1 && lineParam) {
+              row =
+                rows.find(
+                  (r) =>
+                    (r.line_code || "").toLowerCase() === lineParam.toLowerCase()
+                ) || row;
+            }
+
+            const perfRaw = Number(row.performance ?? 0);
+            const planned =
+              row.planned_runtime_sec ??
+              row.planned_time_s ??
+              null;
+            const avail =
+              typeof row.availability === "number"
+                ? Number(row.availability)
+                : null;
+
+            detail.performance = clamp01(perfRaw);
+            detail.planned_s = planned != null ? Number(planned) : null;
+
+            // Runtime coherente con KPI: disponibilidad × tiempo planificado
+            if (planned != null && avail != null) {
+              detail.runtime_s = Number(planned) * clamp01(avail);
+            }
+
+            if (row.line_code && !detail.line_code) {
+              detail.line_code = row.line_code;
+            }
+          }
+        } else {
+          console.warn(
+            "API /performance: fallo al llamar a /api/kpis",
+            kpiResp.status
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("API /performance: error leyendo /api/kpis", e);
+      // Seguimos igual, solo sin KPIs (detail mantiene nulls)
+    }
+
+    // ====== 2) Resolver line_id por nombre/código para los segmentos ======
+    async function resolveLine() {
+      const needle = lineParam;
+
+      // 1) nombre exacto (case-insensitive)
+      let { data, error } = (await admin
+        .from("lines")
+        .select("id,name,code")
+        .ilike("name", needle)
+        .limit(1)) as unknown as { data: LineRow[] | null; error: any };
+      if (error) throw error;
+
+      // 2) contiene en nombre
+      if (!data?.[0]) {
+        const { data: d2, error: e2 } = (await admin
+          .from("lines")
+          .select("id,name,code")
+          .ilike("name", `%${needle}%`)
+          .limit(1)) as unknown as { data: LineRow[] | null; error: any };
+        if (e2) throw e2;
+        data = d2;
+      }
+
+      // 3) por código
+      if (!data?.[0]) {
+        const { data: d3, error: e3 } = (await admin
+          .from("lines")
+          .select("id,name,code")
+          .ilike("code", needle)
+          .limit(1)) as unknown as { data: LineRow[] | null; error: any };
+        if (e3) throw e3;
+        data = d3;
+      }
+
+      const line = data?.[0];
+      return line
+        ? ({
+            id: line.id,
+            label: (line.name || line.code || needle) as string,
+            code: line.code || null,
+          } as { id: string; label: string; code: string | null })
+        : null;
+    }
+
+    const line = await resolveLine();
+
+    // Ajustamos el label si conocemos el nombre real de la línea
+    if (line) {
+      detail.line_code = line.label;
+    }
+
+    // Si no resolvimos la línea, devolvemos igual los KPIs (sin segmentos)
     if (!line) {
       return NextResponse.json({ ok: true, data: detail });
     }
 
-    // ====== Buscar shifts que se SOLAPAN con [from, to) ======
-    const { data: shifts, error: shiftsErr } = await admin
-      .from("v_shift_instances_resolved")
-      .select("shift_instance_id, starts_at, ends_at")
-      .lt("starts_at", toISO)
-      .gt("ends_at", fromISO);
-    if (shiftsErr) throw shiftsErr;
-
-    const shiftIds = (shifts || []).map((s: any) => s.shift_instance_id as string);
-    if (shiftIds.length === 0) {
-      return NextResponse.json({ ok: true, data: detail });
-    }
-
-    // ====== OEE por turno de esa línea ======
-    const { data: oeeRows, error: oeeErr } = await admin
-      .from("v_oee_by_shift")
-      .select("line_id, plant_id, planned_time_s, availability, performance, oee, shift_instance_id")
-      .eq("line_id", line.id)
-      .in("shift_instance_id", shiftIds)
-      .limit(50000);
-    if (oeeErr) throw oeeErr;
-
-    // Filtro por planta si vino
-    const rows = (oeeRows || []).filter((r: any) => (plantId ? r.plant_id === plantId : true)) as OeeRow[];
-
-    // Agregado (ponderado por plan)
-    let totalPlan = 0;
-    let sumPerf = 0;
-    let sumAvailXPlan = 0;
-    for (const r of rows) {
-      const w = Math.max(0, Number(r.planned_time_s || 0));
-      if (!w) continue;
-      totalPlan += w;
-      sumPerf += Number(r.performance || 0) * w;
-      sumAvailXPlan += Number(r.availability || 0) * w; // runtime aprox
-    }
-
-    if (totalPlan > 0) {
-      detail.performance = sumPerf / totalPlan;
-      detail.planned_s = totalPlan;
-      detail.runtime_s = sumAvailXPlan;
-    }
-
-    // ====== Intento traer segmentos reales (si tienes vista/tabla) ======
+    // ====== 3) Intentar traer segmentos reales (vista o tabla) ======
     async function tryFetchSegments(viewOrTable: string) {
       try {
         const sel =
           "id, line_id, started_at, ended_at, duration_s, ideal_rate_u_min, actual_rate_u_min, sku, notes";
-        let q = admin.from(viewOrTable).select(sel)
+        let q = admin
+          .from(viewOrTable)
+          .select(sel)
           .eq("line_id", line.id)
           .lt("started_at", toISO)
           .gte("ended_at", fromISO)
@@ -195,7 +230,12 @@ export async function GET(req: NextRequest) {
           ended_at: s.ended_at,
           duration_s: Number(
             s.duration_s ??
-              Math.max(0, (new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000)
+              Math.max(
+                0,
+                (new Date(s.ended_at).getTime() -
+                  new Date(s.started_at).getTime()) /
+                  1000
+              )
           ),
           ideal_rate_u_min: Number(s.ideal_rate_u_min ?? 0),
           actual_rate_u_min: Number(s.actual_rate_u_min ?? 0),
@@ -203,7 +243,11 @@ export async function GET(req: NextRequest) {
           notes: s.notes ?? null,
         }));
         return mapped;
-      } catch {
+      } catch (err) {
+        console.warn(
+          `API /performance: fallo al leer ${viewOrTable}`,
+          (err as any)?.message || err
+        );
         return null; // la vista/tabla puede no existir
       }
     }

@@ -22,7 +22,13 @@ function admin() {
   });
 }
 
-type ShiftSummary = {
+/* ===================== Tipos ===================== */
+
+type TurnoResumenRow = {
+  plant_id: string;
+  line_code: string;
+  shift_start: string;
+  shift_end: string;
   availability: number;
   performance: number;
   quality: number;
@@ -35,288 +41,231 @@ type ShiftSummary = {
   downtime_min: number | null;
 };
 
-type ShiftSummaryResponse = {
+type TurnoResumenSummary = {
+  total_shifts: number;
+  avg_availability: number | null;
+  avg_performance: number | null;
+  avg_quality: number | null;
+  avg_oee: number | null;
+  total_units_total: number;
+  total_units_good: number;
+  total_units_scrap: number;
+  total_planned_runtime_min: number;
+  total_run_time_min: number;
+  total_downtime_min: number;
+};
+
+type TurnoResumenResponse = {
   ok: boolean;
   error?: string | null;
-  data?: ShiftSummary | null;
+  filters?: {
+    from: string;
+    to: string;
+    plantId: string | null;
+    lineId: string | null;
+  };
+  rows?: TurnoResumenRow[];
+  summary?: TurnoResumenSummary;
 };
+
+/* ================ Helpers internos ================ */
+
+function parseDateParam(name: string, value: string | null): string {
+  if (!value) {
+    throw new Error(`Falta el parámetro obligatorio "${name}" (YYYY-MM-DD).`);
+  }
+
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    throw new Error(
+      `Parámetro "${name}" inválido. Usa formato YYYY-MM-DD (ej. 2025-12-01).`
+    );
+  }
+
+  return trimmed;
+}
+
+/**
+ * Convierte YYYY-MM-DD a ISO inicio de día y fin de día (UTC) para filtrar.
+ */
+function toDayRangeIso(from: string, to: string) {
+  const fromIso = new Date(from + "T00:00:00.000Z").toISOString();
+  const toIso = new Date(to + "T23:59:59.999Z").toISOString();
+  return { fromIso, toIso };
+}
+
+/* ======================= GET ======================= */
 
 export async function GET(req: NextRequest) {
   const supabase = admin();
 
   try {
     const { searchParams } = new URL(req.url);
+
+    // Filtros básicos
+    const fromParam = searchParams.get("from");
+    const toParam = searchParams.get("to");
     const plantId = searchParams.get("plantId");
-    const lineCode = searchParams.get("lineId"); // aquí lineId = código (L1, L2…)
-    const shiftDateRaw = searchParams.get("shiftDate");
-    const shiftTemplateId = searchParams.get("shiftTemplateId");
+    const lineId = searchParams.get("lineId"); // aquí lineId = código (L1, L2…)
 
-    if (!plantId || !lineCode || !shiftDateRaw) {
-      return NextResponse.json<ShiftSummaryResponse>(
-        {
-          ok: false,
-          error:
-            "Faltan parámetros: plantId, lineId y shiftDate son obligatorios.",
-        },
+    let from: string;
+    let to: string;
+
+    try {
+      from = parseDateParam("from", fromParam);
+      to = parseDateParam("to", toParam);
+    } catch (e: any) {
+      return NextResponse.json<TurnoResumenResponse>(
+        { ok: false, error: e?.message ?? "Parámetros de fecha inválidos." },
         { status: 400 }
       );
     }
 
-    // ────────────────────────────────────────────────
-    // RAMA 1: compatibilidad antigua (sin shiftTemplateId)
-    // Sigue usando el 'shiftInstant' dentro del rango [shift_start, shift_end)
-    // ────────────────────────────────────────────────
-    if (!shiftTemplateId) {
-      let shiftInstant: string;
-      try {
-        const d = new Date(shiftDateRaw);
-        if (isNaN(d.getTime())) {
-          throw new Error("Fecha inválida");
-        }
-        shiftInstant = d.toISOString();
-      } catch {
-        return NextResponse.json<ShiftSummaryResponse>(
-          {
-            ok: false,
-            error:
-              "Formato de shiftDate inválido. Usa un datetime válido (ej. 2025-12-02T08:00).",
-          },
-          { status: 400 }
-        );
-      }
+    const { fromIso, toIso } = toDayRangeIso(from, to);
 
-      const { data, error } = await supabase
-        .from("v_reporting_shift_summary")
-        .select(
-          [
-            "availability",
-            "performance",
-            "quality",
-            "oee",
-            "units_total",
-            "units_good",
-            "units_scrap",
-            "planned_runtime_sec",
-            "run_time_sec",
-            "downtime_sec",
-            "shift_start",
-            "shift_end",
-          ].join(", ")
-        )
-        .eq("plant_id", plantId)
-        .eq("line_code", lineCode)
-        .lte("shift_start", shiftInstant)
-        .gt("shift_end", shiftInstant)
-        .order("shift_start", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    // Construimos la query sobre la vista v_reporting_shift_summary
+    const selectColumns = [
+      "plant_id",
+      "line_code",
+      "shift_start",
+      "shift_end",
+      "availability",
+      "performance",
+      "quality",
+      "oee",
+      "units_total",
+      "units_good",
+      "units_scrap",
+      "planned_runtime_sec",
+      "run_time_sec",
+      "downtime_sec",
+    ].join(", ");
 
-      if (error) {
-        console.error("[turno-resumen][legacy] Error Supabase:", error);
-        return NextResponse.json<ShiftSummaryResponse>(
-          {
-            ok: false,
-            error:
-              "Error al consultar Supabase para el resumen de turno (modo legacy).",
-          },
-          { status: 500 }
-        );
-      }
-
-      if (!data) {
-        return NextResponse.json<ShiftSummaryResponse>(
-          {
-            ok: false,
-            error:
-              "No se encontró ningún turno para los filtros seleccionados (modo legacy).",
-          },
-          { status: 404 }
-        );
-      }
-
-      const {
-        availability,
-        performance,
-        quality,
-        oee,
-        units_total,
-        units_good,
-        units_scrap,
-        planned_runtime_sec,
-        run_time_sec,
-        downtime_sec,
-      } = data as any;
-
-      const summary: ShiftSummary = {
-        availability: availability ?? 0,
-        performance: performance ?? 0,
-        quality: quality ?? 0,
-        oee: oee ?? 0,
-        units_total: Number(units_total ?? 0),
-        units_good: Number(units_good ?? 0),
-        units_scrap: Number(units_scrap ?? 0),
-        planned_runtime_min:
-          planned_runtime_sec != null
-            ? Number(planned_runtime_sec) / 60
-            : null,
-        run_time_min:
-          run_time_sec != null ? Number(run_time_sec) / 60 : null,
-        downtime_min:
-          downtime_sec != null ? Number(downtime_sec) / 60 : null,
-      };
-
-      return NextResponse.json<ShiftSummaryResponse>(
-        {
-          ok: true,
-          data: summary,
-        },
-        { status: 200 }
-      );
-    }
-
-    // ────────────────────────────────────────────────
-    // RAMA 2: lógica nueva “pro”
-    // Usar (plantId, lineCode, shiftTemplateId, shiftDate) para localizar
-    // la instancia de turno y luego leer v_reporting_shift_summary exactamente
-    // para ese turno.
-    // ────────────────────────────────────────────────
-
-    // Normalizar shiftDate a YYYY-MM-DD (admite que venga con HH:mm)
-    const datePart = shiftDateRaw.slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
-      return NextResponse.json<ShiftSummaryResponse>(
-        {
-          ok: false,
-          error:
-            "Formato de shiftDate inválido. Usa YYYY-MM-DD (ej. 2025-11-27).",
-        },
-        { status: 400 }
-      );
-    }
-    const shiftDate = datePart; // este va contra la columna date
-
-    // 1) Buscar la instancia de turno en v_shift_instances_resolved
-    const { data: shiftRow, error: shiftErr } = await supabase
-      .from("v_shift_instances_resolved")
-      .select("shift_instance_id, plant_id, template_id, shift_date, starts_at, ends_at")
-      .eq("plant_id", plantId)
-      .eq("template_id", shiftTemplateId)
-      .eq("shift_date", shiftDate)
-      .limit(1)
-      .maybeSingle();
-
-    if (shiftErr) {
-      console.error("[turno-resumen] Error buscando instancia de turno:", shiftErr);
-      return NextResponse.json<ShiftSummaryResponse>(
-        {
-          ok: false,
-          error: "Error al buscar la instancia de turno para los filtros.",
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!shiftRow) {
-      return NextResponse.json<ShiftSummaryResponse>(
-        {
-          ok: false,
-          error:
-            "No se encontró ninguna instancia de turno para esa fecha y plantilla.",
-        },
-        { status: 404 }
-      );
-    }
-
-    const { starts_at, ends_at } = shiftRow as any;
-
-    // 2) Buscar el resumen en v_reporting_shift_summary para esa línea y ese turno
-    const { data, error } = await supabase
+    let query = supabase
       .from("v_reporting_shift_summary")
-      .select(
-        [
-          "availability",
-          "performance",
-          "quality",
-          "oee",
-          "units_total",
-          "units_good",
-          "units_scrap",
-          "planned_runtime_sec",
-          "run_time_sec",
-          "downtime_sec",
-          "shift_start",
-          "shift_end",
-        ].join(", ")
-      )
-      .eq("plant_id", plantId)
-      .eq("line_code", lineCode)
-      .eq("shift_start", starts_at)
-      .eq("shift_end", ends_at)
-      .limit(1)
-      .maybeSingle();
+      .select(selectColumns)
+      .gte("shift_start", fromIso)
+      .lte("shift_start", toIso)
+      .order("shift_start", { ascending: false })
+      .order("line_code", { ascending: true });
+
+    if (plantId) {
+      query = query.eq("plant_id", plantId);
+    }
+
+    if (lineId) {
+      // lineId aquí representa el código de línea (L1, L2, etc.)
+      query = query.eq("line_code", lineId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
-      console.error("[turno-resumen] Error Supabase (modo pro):", error);
-      return NextResponse.json<ShiftSummaryResponse>(
+      console.error("[turno-resumen] Error Supabase:", error);
+      return NextResponse.json<TurnoResumenResponse>(
         {
           ok: false,
           error:
-            "Error al consultar Supabase para el resumen de turno (modo pro).",
+            "Error al consultar Supabase para el resumen de turnos. Revisa logs.",
         },
         { status: 500 }
       );
     }
 
-    if (!data) {
-      return NextResponse.json<ShiftSummaryResponse>(
-        {
-          ok: false,
-          error:
-            "No se encontró ningún resumen de turno para esa línea y turno.",
-        },
-        { status: 404 }
-      );
+    const rowsRaw = (data ?? []) as any[];
+
+    const rows: TurnoResumenRow[] = rowsRaw.map((r) => {
+      const plannedSec = r.planned_runtime_sec as number | null;
+      const runSec = r.run_time_sec as number | null;
+      const downSec = r.downtime_sec as number | null;
+
+      return {
+        plant_id: r.plant_id,
+        line_code: r.line_code,
+        shift_start: r.shift_start,
+        shift_end: r.shift_end,
+        availability: r.availability ?? 0,
+        performance: r.performance ?? 0,
+        quality: r.quality ?? 0,
+        oee: r.oee ?? 0,
+        units_total: Number(r.units_total ?? 0),
+        units_good: Number(r.units_good ?? 0),
+        units_scrap: Number(r.units_scrap ?? 0),
+        planned_runtime_min:
+          plannedSec != null ? Number(plannedSec) / 60 : null,
+        run_time_min: runSec != null ? Number(runSec) / 60 : null,
+        downtime_min: downSec != null ? Number(downSec) / 60 : null,
+      };
+    });
+
+    // Calculamos el resumen agregado para la banda superior del reporte
+    const total_shifts = rows.length;
+
+    let sumA = 0;
+    let sumP = 0;
+    let sumQ = 0;
+    let sumOEE = 0;
+
+    let total_units_total = 0;
+    let total_units_good = 0;
+    let total_units_scrap = 0;
+
+    let total_planned_runtime_min = 0;
+    let total_run_time_min = 0;
+    let total_downtime_min = 0;
+
+    for (const r of rows) {
+      sumA += r.availability;
+      sumP += r.performance;
+      sumQ += r.quality;
+      sumOEE += r.oee;
+
+      total_units_total += r.units_total;
+      total_units_good += r.units_good;
+      total_units_scrap += r.units_scrap;
+
+      if (r.planned_runtime_min != null) {
+        total_planned_runtime_min += r.planned_runtime_min;
+      }
+      if (r.run_time_min != null) {
+        total_run_time_min += r.run_time_min;
+      }
+      if (r.downtime_min != null) {
+        total_downtime_min += r.downtime_min;
+      }
     }
 
-    const {
-      availability,
-      performance,
-      quality,
-      oee,
-      units_total,
-      units_good,
-      units_scrap,
-      planned_runtime_sec,
-      run_time_sec,
-      downtime_sec,
-    } = data as any;
-
-    const summary: ShiftSummary = {
-      availability: availability ?? 0,
-      performance: performance ?? 0,
-      quality: quality ?? 0,
-      oee: oee ?? 0,
-      units_total: Number(units_total ?? 0),
-      units_good: Number(units_good ?? 0),
-      units_scrap: Number(units_scrap ?? 0),
-      planned_runtime_min:
-        planned_runtime_sec != null ? Number(planned_runtime_sec) / 60 : null,
-      run_time_min:
-        run_time_sec != null ? Number(run_time_sec) / 60 : null,
-      downtime_min:
-        downtime_sec != null ? Number(downtime_sec) / 60 : null,
+    const summary: TurnoResumenSummary = {
+      total_shifts,
+      avg_availability: total_shifts ? sumA / total_shifts : null,
+      avg_performance: total_shifts ? sumP / total_shifts : null,
+      avg_quality: total_shifts ? sumQ / total_shifts : null,
+      avg_oee: total_shifts ? sumOEE / total_shifts : null,
+      total_units_total,
+      total_units_good,
+      total_units_scrap,
+      total_planned_runtime_min,
+      total_run_time_min,
+      total_downtime_min,
     };
 
-    return NextResponse.json<ShiftSummaryResponse>(
+    return NextResponse.json<TurnoResumenResponse>(
       {
         ok: true,
-        data: summary,
+        filters: {
+          from,
+          to,
+          plantId: plantId || null,
+          lineId: lineId || null,
+        },
+        rows,
+        summary,
       },
       { status: 200 }
     );
   } catch (err: any) {
     console.error("[turno-resumen] Endpoint error:", err);
-    return NextResponse.json<ShiftSummaryResponse>(
+    return NextResponse.json<TurnoResumenResponse>(
       {
         ok: false,
         error: err?.message || "Unexpected error in turno-resumen",

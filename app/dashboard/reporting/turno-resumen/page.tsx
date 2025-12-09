@@ -5,59 +5,81 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
-/* ==== Tipos de datos ==== */
-type ShiftSummary = {
-  availability: number; // 0–1
-  performance: number;  // 0–1
-  quality: number;      // 0–1
-  oee: number;          // 0–1
-
+/* ==== Tipos de datos (API nuevo reporting) ==== */
+type TurnoResumenRow = {
+  plant_id: string;
+  line_code: string;
+  shift_start: string;
+  shift_end: string;
+  availability: number;
+  performance: number;
+  quality: number;
+  oee: number;
   units_total: number;
   units_good: number;
   units_scrap: number;
-
-  planned_runtime_min?: number | null;
-  run_time_min?: number | null;
-  downtime_min?: number | null;
+  planned_runtime_min: number | null;
+  run_time_min: number | null;
+  downtime_min: number | null;
 };
 
-type ShiftSummaryResponse = {
+type TurnoResumenSummary = {
+  total_shifts: number;
+  avg_availability: number | null;
+  avg_performance: number | null;
+  avg_quality: number | null;
+  avg_oee: number | null;
+  total_units_total: number;
+  total_units_good: number;
+  total_units_scrap: number;
+  total_planned_runtime_min: number;
+  total_run_time_min: number;
+  total_downtime_min: number;
+};
+
+type TurnoResumenResponse = {
   ok: boolean;
   error?: string | null;
-  data?: ShiftSummary | null;
+  filters?: {
+    from: string;
+    to: string;
+    plantId: string | null;
+    lineId: string | null;
+  };
+  rows?: TurnoResumenRow[];
+  summary?: TurnoResumenSummary;
 };
 
 type Plant = { id: string; name: string };
 type Line = { id: string; code: string; name: string };
-type ShiftTemplate = { id: string; code: string; name: string };
 
 /* ==== Página ==== */
 export default function TurnoResumenReportPage() {
   const supabase = createClientComponentClient();
   const sb = supabase as any;
 
-  // Contexto de organización / planta / catálogo
+  // Contexto de organización / planta / líneas
   const [orgId, setOrgId] = useState<string | null>(null);
   const [plant, setPlant] = useState<Plant | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
-  const [shiftTemplates, setShiftTemplates] = useState<ShiftTemplate[]>([]);
 
   const [metaLoading, setMetaLoading] = useState(true);
   const [metaError, setMetaError] = useState<string | null>(null);
 
   // Filtros
   const [selectedLineCodes, setSelectedLineCodes] = useState<string[]>([]);
-  const [shiftTemplateId, setShiftTemplateId] = useState("");
-  const [shiftDate, setShiftDate] = useState(""); // YYYY-MM-DD
+  const [fromDate, setFromDate] = useState(""); // YYYY-MM-DD
+  const [toDate, setToDate] = useState(""); // YYYY-MM-DD
 
   // Resultado
-  const [summary, setSummary] = useState<ShiftSummary | null>(null);
+  const [rows, setRows] = useState<TurnoResumenRow[]>([]);
+  const [summary, setSummary] = useState<TurnoResumenSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasTried, setHasTried] = useState(false);
 
   /* ============================
-   * 1) Cargar org_id, planta, turnos y líneas desde las MISMAS tablas que Settings
+   * 1) Cargar org_id, planta y líneas (igual patrón que Settings)
    * ============================ */
   useEffect(() => {
     let mounted = true;
@@ -72,7 +94,9 @@ export default function TurnoResumenReportPage() {
         const userId = userRes?.user?.id ?? null;
 
         if (!userId) {
-          throw new Error("No se pudo determinar el usuario actual (sin sesión).");
+          throw new Error(
+            "No se pudo determinar el usuario actual (sin sesión)."
+          );
         }
 
         const { data: memberships, error: errMember } = await sb
@@ -117,28 +141,7 @@ export default function TurnoResumenReportPage() {
         if (!mounted) return;
         setPlant(currentPlant);
 
-        // 3) plantillas de turno activas de esa org (igual patrón que ShiftsTab)
-        const { data: shifts, error: errShifts } = await sb
-          .schema("liwa")
-          .from("shift_templates")
-          .select("id, org_id, code, name, is_active")
-          .eq("org_id", oid)
-          .eq("is_active", true)
-          .order("code", { ascending: true });
-
-        if (errShifts) throw errShifts;
-
-        const templates: ShiftTemplate[] =
-          (shifts ?? []).map((t: any) => ({
-            id: t.id as string,
-            code: (t.code as string) ?? "",
-            name: (t.name as string) ?? "",
-          })) ?? [];
-
-        if (!mounted) return;
-        setShiftTemplates(templates);
-
-        // 4) líneas activas de esa planta (igual patrón que LinesTab)
+        // 3) líneas activas de esa planta (igual patrón que LinesTab)
         const { data: linesData, error: errLines } = await sb
           .schema("liwa")
           .from("lines")
@@ -164,7 +167,7 @@ export default function TurnoResumenReportPage() {
         console.error("[turno-resumen] Error al cargar metadatos:", err);
         setMetaError(
           err?.message ||
-            "No se pudo cargar la planta actual, los turnos o las líneas configuradas."
+            "No se pudo cargar la planta actual o las líneas configuradas."
         );
       } finally {
         if (mounted) setMetaLoading(false);
@@ -183,9 +186,7 @@ export default function TurnoResumenReportPage() {
    * ============================ */
   function toggleLine(code: string) {
     setSelectedLineCodes((prev) =>
-      prev.includes(code)
-        ? prev.filter((c) => c !== code)
-        : [...prev, code]
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
     );
   }
 
@@ -204,6 +205,7 @@ export default function TurnoResumenReportPage() {
     e.preventDefault();
     setHasTried(true);
     setError(null);
+    setRows([]);
     setSummary(null);
 
     try {
@@ -212,8 +214,8 @@ export default function TurnoResumenReportPage() {
           "No se ha podido determinar la planta actual. Revisa Configuración → Planta."
         );
       }
-      if (!shiftTemplateId || !shiftDate) {
-        throw new Error("Debes seleccionar turno y día del turno.");
+      if (!fromDate || !toDate) {
+        throw new Error("Debes seleccionar un rango de fechas (desde y hasta).");
       }
       if (!lines.length) {
         throw new Error(
@@ -221,6 +223,7 @@ export default function TurnoResumenReportPage() {
         );
       }
 
+      // Si el usuario no selecciona líneas, interpretamos "todas"
       const effectiveLines =
         selectedLineCodes.length > 0
           ? selectedLineCodes
@@ -228,17 +231,15 @@ export default function TurnoResumenReportPage() {
 
       if (!effectiveLines.length) {
         throw new Error(
-          "Debes seleccionar al menos una línea para generar el informe."
+          "Debes seleccionar al menos una línea para visualizar el informe."
         );
       }
 
-      const primaryLine = effectiveLines[0]; // de momento 1 línea → la primera
-
       const params = new URLSearchParams();
+      params.set("from", fromDate);
+      params.set("to", toDate);
       params.set("plantId", plant.id);
-      params.set("lineId", primaryLine);
-      params.set("shiftTemplateId", shiftTemplateId);
-      params.set("shiftDate", `${shiftDate}T12:00`);
+      // No filtramos por línea en el backend: las filtramos en el front.
 
       setLoading(true);
 
@@ -249,24 +250,99 @@ export default function TurnoResumenReportPage() {
 
       if (!res.ok) {
         throw new Error(
-          `No se pudo cargar el resumen del turno (HTTP ${res.status}).`
+          `No se pudo cargar el resumen de turnos (HTTP ${res.status}).`
         );
       }
 
-      const json = (await res.json()) as ShiftSummaryResponse;
-      if (!json.ok || !json.data) {
-        throw new Error(
-          json.error || "No se encontraron datos para ese turno."
-        );
+      const json = (await res.json()) as TurnoResumenResponse;
+      if (!json.ok) {
+        throw new Error(json.error || "No se encontraron datos para el rango.");
       }
 
-      setSummary(json.data);
+      const apiRows = json.rows ?? [];
+      const apiSummary = json.summary ?? null;
+
+      setRows(apiRows);
+      setSummary(apiSummary);
     } catch (err: any) {
-      console.error("Error al cargar resumen de turno:", err);
+      console.error("Error al cargar resumen de turnos:", err);
       setError(err?.message || "Error de red al cargar el informe.");
     } finally {
       setLoading(false);
     }
+  }
+
+  /* ============================
+   * 3) Exportar a CSV (para Excel, separador ;)
+   * ============================ */
+  function handleExportCsv() {
+    if (!visibleRows.length) {
+      alert("No hay datos que exportar para los filtros actuales.");
+      return;
+    }
+
+    const DELIM = ";";
+
+    const header = [
+      "plant_id",
+      "line_code",
+      "shift_start",
+      "shift_end",
+      "availability",
+      "performance",
+      "quality",
+      "oee",
+      "units_good",
+      "units_scrap",
+      "units_total",
+      "planned_runtime_min",
+      "run_time_min",
+      "downtime_min",
+    ];
+
+    const linesCsv = visibleRows.map((r) =>
+      [
+        r.plant_id,
+        r.line_code,
+        r.shift_start,
+        r.shift_end,
+        r.availability,
+        r.performance,
+        r.quality,
+        r.oee,
+        r.units_good,
+        r.units_scrap,
+        r.units_total,
+        r.planned_runtime_min ?? "",
+        r.run_time_min ?? "",
+        r.downtime_min ?? "",
+      ]
+        .map((value) => {
+          const str = String(value);
+          if (str.includes(DELIM) || str.includes('"') || str.includes("\n")) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        })
+        .join(DELIM)
+    );
+
+    const csvContent = [header.join(DELIM), ...linesCsv].join("\n");
+
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    const fromLabel = fromDate || "desde";
+    const toLabel = toDate || "hasta";
+    link.download = `liwa_turno_resumen_${fromLabel}_a_${toLabel}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   /* ============================
@@ -294,8 +370,27 @@ export default function TurnoResumenReportPage() {
     return `${pct}%`;
   }
 
+  function formatDateTime(value: string) {
+    if (!value) return "--";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return value;
+    return d.toLocaleString("es-ES", {
+      year: "2-digit",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
   const plantLabel =
     plant?.name || (metaLoading ? "Cargando…" : "Sin planta");
+
+  // Filtrado de filas según las líneas seleccionadas
+  const visibleRows =
+    rows.length && selectedLineCodes.length
+      ? rows.filter((r) => selectedLineCodes.includes(r.line_code))
+      : rows;
 
   return (
     <main className="min-h-screen w-full bg-slate-950 text-slate-100 px-5 py-8">
@@ -317,9 +412,9 @@ export default function TurnoResumenReportPage() {
             Informe de turno – Resumen global
           </h1>
           <p className="text-sm text-slate-400">
-            Resumen global de un turno (A, P, Q, OEE, unidades producidas,
-            scrap y tiempos clave). Usamos la planta, líneas y turnos que ya
-            tienes configurados en la sección de Configuración.
+            Resumen global de turnos por línea en un rango de fechas (A, P, Q,
+            OEE, unidades producidas, scrap y tiempos clave). Pensado como
+            dataset de trabajo para descargar a Excel y analizar por turno/línea.
           </p>
         </header>
 
@@ -338,11 +433,9 @@ export default function TurnoResumenReportPage() {
           </div>
 
           <p className="text-xs text-slate-500">
-            Los turnos y líneas disponibles se cargan desde tu configuración de
-            planta (Turnos – plantillas, asignación de líneas). De momento el
-            resumen numérico se calcula sobre la primera línea seleccionada;
-            más adelante lo convertiremos en una tabla de trabajo con todas las
-            líneas del turno lista para Excel.
+            Selecciona un rango de fechas y las líneas que quieras analizar. El
+            sistema consulta la vista de resumen de turnos y devuelve una tabla
+            lista para exportar a Excel (una fila = una línea en un turno).
           </p>
 
           <form
@@ -404,47 +497,32 @@ export default function TurnoResumenReportPage() {
               </div>
             </div>
 
-            {/* Turno */}
+            {/* Desde */}
             <div className="flex flex-col gap-1">
-              <label
-                className="text-xs text-slate-400"
-                htmlFor="shiftTemplateId"
-              >
-                Turno
-              </label>
-              <select
-                id="shiftTemplateId"
-                className="h-9 rounded-lg border border-slate-700 bg-slate-900/60 px-3 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500/60"
-                value={shiftTemplateId}
-                onChange={(e) => setShiftTemplateId(e.target.value)}
-                disabled={metaLoading || shiftTemplates.length === 0}
-              >
-                <option value="">
-                  {metaLoading
-                    ? "Cargando turnos…"
-                    : shiftTemplates.length === 0
-                    ? "Sin turnos configurados"
-                    : "Selecciona turno…"}
-                </option>
-                {shiftTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.code} – {t.name || "Sin nombre"}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Día del turno */}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400" htmlFor="shiftDate">
-                Día del turno
+              <label className="text-xs text-slate-400" htmlFor="fromDate">
+                Desde (fecha inicio)
               </label>
               <input
-                id="shiftDate"
+                id="fromDate"
                 type="date"
                 className="h-9 rounded-lg border border-slate-700 bg-slate-900/60 px-3 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/60"
-                value={shiftDate}
-                onChange={(e) => setShiftDate(e.target.value)}
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                disabled={metaLoading}
+              />
+            </div>
+
+            {/* Hasta */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-400" htmlFor="toDate">
+                Hasta (fecha fin)
+              </label>
+              <input
+                id="toDate"
+                type="date"
+                className="h-9 rounded-lg border border-slate-700 bg-slate-900/60 px-3 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/60"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
                 disabled={metaLoading}
               />
             </div>
@@ -465,11 +543,15 @@ export default function TurnoResumenReportPage() {
           {metaError && (
             <p className="mt-1 text-xs text-red-400">{metaError}</p>
           )}
-          {hasTried && !loading && !summary && !error && !metaError && (
-            <p className="mt-1 text-xs text-amber-300/80">
-              No se encontraron datos para los filtros seleccionados.
-            </p>
-          )}
+          {hasTried &&
+            !loading &&
+            !error &&
+            !metaError &&
+            visibleRows.length === 0 && (
+              <p className="mt-1 text-xs text-amber-300/80">
+                No se encontraron datos para los filtros seleccionados.
+              </p>
+            )}
           {error && (
             <p className="mt-1 text-xs text-red-400">
               {error}
@@ -477,13 +559,19 @@ export default function TurnoResumenReportPage() {
           )}
         </section>
 
-        {/* Resumen numérico A, P, Q, OEE */}
+        {/* Resumen numérico A, P, Q, OEE (promedios) */}
         <section className="grid gap-4 md:grid-cols-4">
           {[
-            { label: "Disponibilidad", key: "availability" as const },
-            { label: "Rendimiento", key: "performance" as const },
-            { label: "Calidad", key: "quality" as const },
-            { label: "OEE", key: "oee" as const },
+            {
+              label: "Disponibilidad promedio",
+              key: "avg_availability" as const,
+            },
+            {
+              label: "Rendimiento promedio",
+              key: "avg_performance" as const,
+            },
+            { label: "Calidad promedio", key: "avg_quality" as const },
+            { label: "OEE promedio", key: "avg_oee" as const },
           ].map(({ label, key }) => {
             const value = summary ? summary[key] : undefined;
             return (
@@ -506,17 +594,17 @@ export default function TurnoResumenReportPage() {
           })}
         </section>
 
-        {/* Producción del turno */}
+        {/* Producción agregada del rango */}
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:p-5 space-y-4">
           <div>
             <h2 className="text-sm font-semibold text-slate-200 mb-1">
-              Producción del turno
+              Producción agregada del rango
             </h2>
             <p className="text-xs text-slate-400">
-              Unidades producidas, unidades buenas, scrap y desglose de tiempos
-              (planificado, en marcha y parado) calculados a partir de los datos
-              devueltos por la API de resumen de turno. Pensado para poder
-              exportar a Excel por línea/turno.
+              Unidades totales, unidades buenas, scrap y tiempos agregados de
+              todos los turnos devueltos por el informe. Esto resume el rango
+              completo que luego puedes desglosar en la tabla de detalle o en
+              Excel.
             </p>
           </div>
 
@@ -524,19 +612,19 @@ export default function TurnoResumenReportPage() {
             <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
               <div className="text-xs text-slate-400">Unidades totales</div>
               <div className="mt-1 text-2xl font-semibold">
-                {formatNumber(summary?.units_total)}
+                {formatNumber(summary?.total_units_total)}
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
               <div className="text-xs text-slate-400">Unidades buenas</div>
               <div className="mt-1 text-2xl font-semibold">
-                {formatNumber(summary?.units_good)}
+                {formatNumber(summary?.total_units_good)}
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
               <div className="text-xs text-slate-400">Scrap</div>
               <div className="mt-1 text-2xl font-semibold">
-                {formatNumber(summary?.units_scrap)}
+                {formatNumber(summary?.total_units_scrap)}
               </div>
             </div>
           </div>
@@ -544,38 +632,154 @@ export default function TurnoResumenReportPage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
               <div className="text-xs text-slate-400">
-                Tiempo planificado (turno)
+                Tiempo planificado (suma)
               </div>
               <div className="mt-1 text-lg font-semibold">
-                {formatMinutes(summary?.planned_runtime_min)}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
-              <div className="text-xs text-slate-400">Tiempo en marcha</div>
-              <div className="mt-1 text-lg font-semibold">
-                {formatMinutes(summary?.run_time_min)}
+                {formatMinutes(summary?.total_planned_runtime_min)}
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
-              <div className="text-xs text-slate-400">Tiempo parado</div>
+              <div className="text-xs text-slate-400">
+                Tiempo en marcha (suma)
+              </div>
               <div className="mt-1 text-lg font-semibold">
-                {formatMinutes(summary?.downtime_min)}
+                {formatMinutes(summary?.total_run_time_min)}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
+              <div className="text-xs text-slate-400">
+                Tiempo parado (suma)
+              </div>
+              <div className="mt-1 text-lg font-semibold">
+                {formatMinutes(summary?.total_downtime_min)}
               </div>
             </div>
           </div>
         </section>
 
-        {/* Botones export (placeholder) */}
+        {/* Tabla de detalle por turno y línea (dataset para Excel) */}
+        {visibleRows.length > 0 && (
+          <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 md:p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-200 mb-1">
+                  Detalle por turno y línea
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Una fila por turno y línea dentro del rango seleccionado.
+                  Este es el dataset que luego podrás exportar a Excel para
+                  seguir trabajando (pivots, gráficos, etc.).
+                </p>
+              </div>
+              <div className="text-xs text-slate-500">
+                Total filas:{" "}
+                <span className="font-mono text-emerald-300">
+                  {visibleRows.length}
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
+              <table className="min-w-full text-[11px]">
+                <thead className="bg-slate-900/80 text-slate-300">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">Línea</th>
+                    <th className="px-3 py-2 text-left font-medium">
+                      Inicio turno
+                    </th>
+                    <th className="px-3 py-2 text-left font-medium">
+                      Fin turno
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      Disp.
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      Rend.
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      Calidad
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">OEE</th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      U. buenas
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      Scrap
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      U. totales
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      Run (min)
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      Paro (min)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80">
+                  {visibleRows.map((r, idx) => (
+                    <tr
+                      key={`${r.plant_id}-${r.line_code}-${r.shift_start}-${idx}`}
+                    >
+                      <td className="px-3 py-2 font-mono text-emerald-200">
+                        {r.line_code}
+                      </td>
+                      <td className="px-3 py-2 text-slate-200">
+                        {formatDateTime(r.shift_start)}
+                      </td>
+                      <td className="px-3 py-2 text-slate-200">
+                        {formatDateTime(r.shift_end)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatPct(r.availability)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatPct(r.performance)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatPct(r.quality)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatPct(r.oee)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatNumber(r.units_good)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatNumber(r.units_scrap)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatNumber(r.units_total)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatMinutes(r.run_time_min)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatMinutes(r.downtime_min)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Botones export */}
         <section className="flex flex-wrap gap-3 justify-end">
           <button
             className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-900"
             type="button"
+            onClick={handleExportCsv}
           >
-            Exportar a Excel (WIP)
+            Exportar a Excel (CSV)
           </button>
           <button
             className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-900"
             type="button"
+            disabled
+            title="Pendiente de implementar"
           >
             Exportar a PDF (WIP)
           </button>
