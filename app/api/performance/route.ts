@@ -207,16 +207,17 @@ export async function GET(req: NextRequest) {
         plantId,
         segLimit
       );
-      if (!segments) segments = await tryFetchSegments(
-        admin,
-        line.id,
-        fromISO,
-        toISO,
-        orgId,
-        plantId,
-        segLimit,
-        "speed_segments"
-      );
+      if (!segments)
+        segments = await tryFetchSegments(
+          admin,
+          line.id,
+          fromISO,
+          toISO,
+          orgId,
+          plantId,
+          segLimit,
+          "speed_segments"
+        );
       if (!segments) segments = [];
 
       detail.speed_segments = segments;
@@ -311,7 +312,7 @@ export async function GET(req: NextRequest) {
  * Intenta leer segmentos de una vista/tabla (v_speed_segments o speed_segments)
  */
 async function tryFetchSegments(
-  admin: ReturnType<typeof createClient>,
+  admin: any,                     // <- relajamos el tipo aquí
   lineId: string,
   fromISO: string,
   toISO: string,

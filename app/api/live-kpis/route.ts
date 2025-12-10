@@ -115,13 +115,13 @@ export async function GET(req: NextRequest) {
     if (orgIdFilter) shiftQ = shiftQ.eq("org_id", orgIdFilter);
     if (plantFilter) shiftQ = shiftQ.eq("plant_id", plantFilter);
 
-    const { data: shiftRows, error: errShift } = await shiftQ;
+    const { data: shiftRows, error: errShift } = (await shiftQ) as any;
     if (errShift) {
       console.error("Error loading active shift in live-kpis:", errShift);
       throw errShift;
     }
 
-    const shifts = (shiftRows || []) as ShiftRow[];
+    const shifts: ShiftRow[] = (shiftRows || []) as ShiftRow[];
     const activeShift = shifts[0] ?? null;
 
     // Si no hay turno activo → devolvemos sólo info de tiempo y nulls de KPIs
@@ -140,10 +140,7 @@ export async function GET(req: NextRequest) {
 
     // Ventana live: desde inicio de turno hasta ahora (acotado al fin del turno)
     const fromTs = shiftStart;
-    const toTs =
-      nowTs > shiftEnd
-        ? shiftEnd
-        : nowTs;
+    const toTs = nowTs > shiftEnd ? shiftEnd : nowTs;
 
     const fromIso = fromTs.toISOString();
     const toIso = toTs.toISOString();
@@ -203,10 +200,6 @@ export async function GET(req: NextRequest) {
     });
 
     // 5) Agregar por línea, recalculando Availability para la ventana [fromTs, toTs]
-    //    - planned_overlap_sec = solape turno con [from,to] = tiempo transcurrido
-    //    - availability_live = run_time_s_sum / planned_overlap_sec
-    //    - performance, quality: reutilizamos de la vista (ya son “live” porque
-    //      sólo hay producción hasta ahora)
     const byLine = new Map<string, LineAgg>();
 
     for (const rowAny of base as BaseRow[]) {
@@ -240,20 +233,13 @@ export async function GET(req: NextRequest) {
         rowAny.performance !== null && rowAny.performance !== undefined
           ? Number(rowAny.performance)
           : null;
-      // La availability de la vista está calculada sobre todo el turno;
-      // aquí vamos a recalcularla sobre la ventana transcurrida.
 
       agg.good += good;
       agg.scrap += scrap;
 
-      // Solape turno con [from,to] = en live es básicamente elapsedSec
       const plannedOverlapSec = elapsedSec;
+      if (plannedOverlapSec <= 0) continue;
 
-      if (plannedOverlapSec <= 0) {
-        continue;
-      }
-
-      // Tiempo de ejecución efectivo de esta máquina
       const runTime = Number(rowAny.run_time_s ?? 0);
       const availabilityLive =
         plannedOverlapSec > 0 ? runTime / plannedOverlapSec : null;
@@ -269,7 +255,6 @@ export async function GET(req: NextRequest) {
       }
       agg.weight += plannedOverlapSec;
 
-      // Tiempo planificado de línea: sólo 1 vez por turno+línea
       if (!agg.seenShifts.has(rowAny.shift_instance_id)) {
         agg.linePlanned += plannedOverlapSec;
         agg.seenShifts.add(rowAny.shift_instance_id);
@@ -334,3 +319,4 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
