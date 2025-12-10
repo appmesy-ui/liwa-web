@@ -115,7 +115,6 @@ export default function AvailabilityPage() {
     return { aAvg, lossAvg, ranking: list.sort((a, b) => b.a - a.a) };
   }, [rows]);
 
-  // ✅ Definición ÚNICA de rangeText
   const rangeText = rangeLabel(from, to);
 
   /* ===== Resumen de Paros - contadores ===== */
@@ -236,7 +235,11 @@ export default function AvailabilityPage() {
           <Card title="Availability (A)" value={kpiLoading ? "…" : pct(aAvg)} hint="Promedio ponderado" />
         </AvailabilityParetoLauncher>
 
-        <Card title="Pérdida no planificada" value={kpiLoading ? "…" : pct(lossAvg)} hint="1 − A" />
+        <Card
+          title="Pérdida de disponibilidad"
+          value={kpiLoading ? "…" : pct(lossAvg)}
+          hint="1 − A (tiempo no disponible vs plan)"
+        />
         <Card title="Líneas consideradas" value={kpiLoading ? "…" : nf.format(ranking.length)} hint="Con datos en el rango" />
         <Card title="Tiempo analizado" value={rangeText} hint="Según rango seleccionado" />
       </section>
@@ -331,33 +334,33 @@ export default function AvailabilityPage() {
             </table>
           </div>
 
-        <div className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-950/60">
-          <div className="text-xs text-slate-400">
-            {total ? `Mostrando ${Math.min(offset + 1, total)}–${Math.min(offset + limit, total)} de ${total}` : "—"}
+          <div className="flex items-center justify_between gap-3 px-3 py-2 bg-slate-950/60">
+            <div className="text-xs text-slate-400">
+              {total ? `Mostrando ${Math.min(offset + 1, total)}–${Math.min(offset + limit, total)} de ${total}` : "—"}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => canPrev && setPage((p) => Math.max(1, p - 1))}
+                disabled={!canPrev}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm border " +
+                  (canPrev ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
+                }
+              >
+                ← Anterior
+              </button>
+              <button
+                onClick={() => canNext && setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={!canNext}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm border " +
+                  (canNext ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
+                }
+              >
+                Siguiente →
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => canPrev && setPage((p) => Math.max(1, p - 1))}
-              disabled={!canPrev}
-              className={
-                "px-3 py-1.5 rounded-lg text-sm border " +
-                (canPrev ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
-              }
-            >
-              ← Anterior
-            </button>
-            <button
-              onClick={() => canNext && setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={!canNext}
-              className={
-                "px-3 py-1.5 rounded-lg text-sm border " +
-                (canNext ? "border-white/10 bg-white/[0.06] hover:bg-white/[0.12]" : "border-white/5 bg-white/[0.02] text-slate-500 cursor-not-allowed")
-              }
-            >
-              Siguiente →
-            </button>
-          </div>
-        </div>
         </div>
       </section>
 
@@ -390,7 +393,7 @@ export default function AvailabilityPage() {
                         <div className="font-medium text-slate-100 truncate">{r.line}</div>
                         <div className="text-slate-300 tabular-nums">{pct(r.a)}</div>
                       </div>
-                      <div className="mt-2 h-2.5 w-full rounded-full overflow-hidden bg-slate-800">
+                      <div className="mt-2 h-2.5 w-full rounded-full overflow_hidden bg-slate-800">
                         <div className="h-full" style={{ width: `${clamp01(r.a) * 100}%`, backgroundColor: "#34d399" }} />
                       </div>
                     </div>
@@ -442,7 +445,7 @@ function RowExpandable({ e }: { e: DowntimeRow }) {
   const started = e.started_at ? dtf.format(new Date(e.started_at)) : "—";
   return (
     <>
-      <tr className="border-t border-white/10 hover:bg-white/[0.04]">
+      <tr className="border-t border-white/10 hover:bg_white/[0.04]">
         <td className="px-2 py-2">
           <button
             onClick={() => setOpen((v) => !v)}
@@ -467,12 +470,14 @@ function RowExpandable({ e }: { e: DowntimeRow }) {
           ) : "—"}
         </td>
         <td className="px-3 py-2">
-          <Link
-            href={`/pending/${encodeURIComponent(e.id)}`}
-            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-900"
-          >
-            Clasificar →
-          </Link>
+          {e.state === "pending" ? (
+            <Link
+              href={`/pending/${encodeURIComponent(e.id)}`}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-900"
+            >
+              Clasificar →
+            </Link>
+          ) : null}
         </td>
       </tr>
       {open && (
@@ -499,4 +504,3 @@ function RowExpandable({ e }: { e: DowntimeRow }) {
     </>
   );
 }
-

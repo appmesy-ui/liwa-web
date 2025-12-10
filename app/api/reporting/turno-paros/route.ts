@@ -25,11 +25,8 @@ function admin() {
   });
 }
 
-/**
- * Fila normalizada del reporte de paros.
- * OJO: muchos campos son opcionales porque dependemos
- * de lo que exponga la vista de eventos.
- */
+/** Tipos de respuesta */
+
 type ParoRow = {
   id: string;
   plant_id?: string | null;
@@ -88,8 +85,6 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
-    // Por ahora solo rango de fechas a nivel backend.
-    // Filtros de línea/máquina los haremos en el front a partir del dataset.
     const fromRaw = searchParams.get("from");
     const toRaw = searchParams.get("to");
 
@@ -106,7 +101,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Construimos rango [from, toExclusive)
+    // Rango [from, toExclusive)
     const fromDate = new Date(`${from}T00:00:00Z`);
     const toDate = new Date(`${to}T00:00:00Z`);
     const toExclusive = new Date(toDate.getTime() + 24 * 60 * 60 * 1000);
@@ -125,13 +120,7 @@ export async function GET(req: NextRequest) {
     const fromIso = fromDate.toISOString();
     const toIso = toExclusive.toISOString();
 
-    // ────────────────────────────────────────────────
-    // Consulta a la vista de eventos
-    // IMPORTANTE: aquí asumimos que existe una vista "v_events_ui"
-    // con al menos: id, started_at, ended_at, duration_s, is_planned,
-    // status, notes, machine_code, machine_name.
-    // Si tu vista se llama distinto, solo hay que cambiar el nombre aquí.
-    // ────────────────────────────────────────────────
+    // Consulta a la vista EXISTENTE v_events_ui
     const { data, error } = await supabase
       .from("v_events_ui")
       .select("*")
@@ -145,6 +134,7 @@ export async function GET(req: NextRequest) {
         {
           ok: false,
           error:
+            error.message ||
             "Error al consultar Supabase para el informe de paros y pérdidas.",
         },
         { status: 500 }
@@ -153,7 +143,7 @@ export async function GET(req: NextRequest) {
 
     const raw = (data ?? []) as any[];
 
-    // Normalizamos las filas al formato ParoRow
+    // Normalización → aquí añadimos TODOS los alias posibles
     const rows: ParoRow[] = raw.map((r) => {
       const durationSec =
         typeof r.duration_s === "number"
@@ -167,24 +157,61 @@ export async function GET(req: NextRequest) {
 
       return {
         id: String(r.id),
+
+        // Línea/Máquina: usamos varios posibles nombres de columna
         plant_id: r.plant_id ?? null,
-        line_code: r.line_code ?? null,
-        machine_code: r.machine_code ?? null,
-        machine_name: r.machine_name ?? null,
+        line_code:
+          r.line_code ??
+          r.line ??
+          r.line_name ??
+          r.linea ??
+          null,
+        machine_code:
+          r.machine_code ??
+          r.machine ??
+          r.machine_id ??
+          null,
+        machine_name:
+          r.machine_name ??
+          r.machine_nombre ??
+          null,
+
         started_at: r.started_at,
         ended_at: r.ended_at ?? null,
         duration_min,
+
+        // Planificado / estado
         is_planned:
-          typeof r.is_planned === "boolean" ? r.is_planned : r.is_planned ?? null,
+          typeof r.is_planned === "boolean"
+            ? r.is_planned
+            : r.is_planned ?? null,
         status: r.status ?? null,
-        level1: r.level1 ?? r.level_1 ?? r.nivel_1 ?? null,
-        level2: r.level2 ?? r.level_2 ?? r.nivel_2 ?? null,
-        level3: r.level3 ?? r.level_3 ?? r.nivel_3 ?? null,
+
+        // Motivos N1/N2/N3: incluimos lvl1_name/lvl2_name/lvl3_name
+        level1:
+          r.level1 ??
+          r.level_1 ??
+          r.nivel_1 ??
+          r.lvl1_name ??
+          null,
+        level2:
+          r.level2 ??
+          r.level_2 ??
+          r.nivel_2 ??
+          r.lvl2_name ??
+          null,
+        level3:
+          r.level3 ??
+          r.level_3 ??
+          r.nivel_3 ??
+          r.lvl3_name ??
+          null,
+
         notes: r.notes ?? null,
       };
     });
 
-    // Calculamos resumen
+    // Resumen agregado
     let total_downtime_min = 0;
     let total_planned_downtime_min = 0;
     let total_unplanned_downtime_min = 0;

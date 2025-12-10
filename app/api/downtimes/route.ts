@@ -23,8 +23,11 @@ export async function GET(req: NextRequest) {
   const applyFilters = (q: any) => {
     if (from) q = q.gte("started_at", from);
     if (to)   q = q.lte("started_at", to);
-    if (state === "pending")    q = q.eq("classified_ui", false);
-    if (state === "classified") q = q.eq("classified_ui", true);
+
+    // Ahora filtramos por la columna status de la vista
+    if (state === "pending")    q = q.eq("status", "pending");
+    if (state === "classified") q = q.eq("status", "classified");
+
     return q;
   };
 
@@ -42,17 +45,19 @@ export async function GET(req: NextRequest) {
     let rowsQ = supabase
       .schema("liwa")
       .from("v_events_ui")
-      .select(`
+      .select(
+        `
         id,
         started_at,
         ended_at,
         duration_s,
         line_id,
         machine_id,
-        lvl2_name,
-        lvl3_name,
-        classified_ui
-      `)
+        level2,
+        level3,
+        status
+      `
+      )
       .order("started_at", { ascending: false })
       .range(offset, offset + limit - 1);
     rowsQ = applyFilters(rowsQ);
@@ -115,8 +120,11 @@ export async function GET(req: NextRequest) {
     const rows = (data ?? []).map((r: any) => {
       const ev = statusById[r.id] ?? { status: null, classified_at: null };
       const stateFromEvents =
-        ev.status === 'classified' ? 'classified' :
-        ev.status === 'pending'    ? 'pending'    : null;
+        ev.status === "classified"
+          ? "classified"
+          : ev.status === "pending"
+          ? "pending"
+          : null;
 
       return {
         id: r.id,
@@ -127,9 +135,15 @@ export async function GET(req: NextRequest) {
         machine_id: r.machine_id ?? null,
         line_code: r.line_id ? (lineCodeById[r.line_id] ?? null) : null,
         machine_code: r.machine_id ? (machineCodeById[r.machine_id] ?? null) : null,
-        n2_name: r.lvl2_name ?? null,
-        n3_name: r.lvl3_name ?? null,
-        state: stateFromEvents ?? (r.classified_ui ? "classified" : "pending"),
+        n2_name: r.level2 ?? null,
+        n3_name: r.level3 ?? null,
+        state:
+          stateFromEvents ??
+          (r.status === "classified"
+            ? "classified"
+            : r.status === "pending"
+            ? "pending"
+            : null),
         classified_at: ev.classified_at ?? null,
       };
     });
@@ -143,7 +157,10 @@ export async function GET(req: NextRequest) {
       rows,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Error" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error" },
+      { status: 400 }
+    );
   }
 }
 
