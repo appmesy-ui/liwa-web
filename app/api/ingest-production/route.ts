@@ -107,42 +107,24 @@ export async function POST(req: NextRequest) {
       const machine = machines[0];
       let shiftId: string | null = null;
 
-      if (machine.line_id) {
-        const { data: shiftsLine, error: errShiftLine } = await supabase
-          .from("v_shift_instances_resolved")
-          .select("shift_instance_id, starts_at, ends_at")
-          .eq("plant_id", plant_id)
-          .eq("line_id", machine.line_id)
-          .lte("starts_at", startIso)
-          .gt("ends_at", startIso)
-          .order("starts_at", { ascending: true })
-          .limit(1);
+      const { data: shiftsPlant, error: errShiftPlant } = await supabase
+        .from("v_shift_instances_resolved")
+        .select("shift_instance_id, starts_at, ends_at")
+        .eq("plant_id", plant_id)
+        .lte("starts_at", startIso)
+        .gt("ends_at", startIso)
+        .order("starts_at", { ascending: true })
+        .limit(1);
 
-        if (!errShiftLine && shiftsLine && shiftsLine.length > 0) {
-          shiftId = shiftsLine[0].shift_instance_id as string;
-        }
+      if (errShiftPlant) {
+        results.push({ ok: false, error: "Error loading shift", machine_code });
+        continue;
       }
 
-      if (!shiftId) {
-        const { data: shiftsPlant, error: errShiftPlant } = await supabase
-          .from("v_shift_instances_resolved")
-          .select("shift_instance_id, starts_at, ends_at")
-          .eq("plant_id", plant_id)
-          .lte("starts_at", startIso)
-          .gt("ends_at", startIso)
-          .order("starts_at", { ascending: true })
-          .limit(1);
-
-        if (errShiftPlant) {
-          results.push({ ok: false, error: "Error loading shift", machine_code });
-          continue;
-        }
-
-        shiftId =
-          shiftsPlant && shiftsPlant.length > 0
-            ? (shiftsPlant[0].shift_instance_id as string)
-            : null;
-      }
+      shiftId =
+        shiftsPlant && shiftsPlant.length > 0
+          ? (shiftsPlant[0].shift_instance_id as string)
+          : null;
 
       const row: any = {
         org_id,
@@ -163,7 +145,7 @@ export async function POST(req: NextRequest) {
       const { error: errIns } = await supabase.from("production").insert(row);
 
       if (errIns) {
-        results.push({ ok: false, error: "Error inserting production", machine_code });
+        results.push({ ok: false, error: errIns.message, machine_code });
         continue;
       }
 
