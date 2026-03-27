@@ -7,19 +7,25 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 type EventIngestPayload = {
   org_id: string;
   plant_id: string;
   machine_code: string;
-
-  // Ventana del paro
-  started_at: string; // ISO
-  ended_at: string;   // ISO
-
-  // Opcionales
+  started_at: string;
+  ended_at: string;
   is_planned?: boolean;
-  status?: string; // estado del evento ("pending", "classified", etc.). Por defecto "pending"
-  source?: string; // "auto" | "manual" (aquí normalmente "auto")
+  status?: string;
+  source?: string;
   notes?: string;
 };
 
@@ -60,13 +66,8 @@ export async function POST(req: NextRequest) {
         notes,
       } = item;
 
-      // 0) Validación básica
       if (!org_id || !plant_id || !machine_code || !started_at || !ended_at) {
-        results.push({
-          ok: false,
-          error: "Missing required fields",
-          machine_code,
-        });
+        results.push({ ok: false, error: "Missing required fields", machine_code });
         continue;
       }
 
@@ -74,23 +75,14 @@ export async function POST(req: NextRequest) {
       const end = new Date(ended_at);
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        results.push({
-          ok: false,
-          error: "Invalid started_at/ended_at (not a valid date)",
-          machine_code,
-        });
+        results.push({ ok: false, error: "Invalid started_at/ended_at", machine_code });
         continue;
       }
 
-      // 1) Duración del paro en segundos (sin inventar valores)
       const durationSecRaw = (end.getTime() - start.getTime()) / 1000;
 
       if (!Number.isFinite(durationSecRaw) || durationSecRaw <= 0) {
-        results.push({
-          ok: false,
-          error: "Non-positive duration (ended_at must be > started_at)",
-          machine_code,
-        });
+        results.push({ ok: false, error: "Non-positive duration", machine_code });
         continue;
       }
 
@@ -98,7 +90,6 @@ export async function POST(req: NextRequest) {
       const startIso = start.toISOString();
       const endIso = end.toISOString();
 
-      // 2) Buscar máquina para obtener line_id
       const { data: machines, error: errMach } = await supabase
         .from("machines")
         .select("id, line_id")
@@ -108,32 +99,18 @@ export async function POST(req: NextRequest) {
         .limit(1);
 
       if (errMach) {
-        console.error("events/ingest: error loading machine", errMach);
-        results.push({
-          ok: false,
-          error: "Error loading machine",
-          machine_code,
-        });
+        results.push({ ok: false, error: "Error loading machine", machine_code });
         continue;
       }
 
       if (!machines || machines.length === 0) {
-        results.push({
-          ok: false,
-          error: "Machine not found",
-          machine_code,
-        });
+        results.push({ ok: false, error: "Machine not found", machine_code });
         continue;
       }
 
       const machine = machines[0];
-
-      // 3) Buscar turno que contenga el inicio del paro
-      //    3.1 Intentar turno-línea
-      //    3.2 Fallback turno por planta (para no romper nada si aún no hay asignación por línea)
       let shiftId: string | null = null;
 
-      // 3.1 Turno-línea
       if (machine.line_id) {
         const { data: shiftsLine, error: errShiftLine } = await supabase
           .from("v_shift_instances_resolved")
@@ -145,14 +122,11 @@ export async function POST(req: NextRequest) {
           .order("starts_at", { ascending: true })
           .limit(1);
 
-        if (errShiftLine) {
-          console.error("events/ingest: error loading line-level shift", errShiftLine);
-        } else if (shiftsLine && shiftsLine.length > 0) {
+        if (!errShiftLine && shiftsLine && shiftsLine.length > 0) {
           shiftId = shiftsLine[0].shift_instance_id as string;
         }
       }
 
-      // 3.2 Fallback: turno por planta
       if (!shiftId) {
         const { data: shiftsPlant, error: errShiftPlant } = await supabase
           .from("v_shift_instances_resolved")
@@ -164,12 +138,7 @@ export async function POST(req: NextRequest) {
           .limit(1);
 
         if (errShiftPlant) {
-          console.error("events/ingest: error loading plant-level shift", errShiftPlant);
-          results.push({
-            ok: false,
-            error: "Error loading shift",
-            machine_code,
-          });
+          results.push({ ok: false, error: "Error loading shift", machine_code });
           continue;
         }
 
@@ -179,8 +148,6 @@ export async function POST(req: NextRequest) {
             : null;
       }
 
-      // 4) Construir fila para liwa.events
-      //    NOTA: no inventamos nada, duration_s = diferencia real start/end.
       const row: any = {
         org_id,
         plant_id,
@@ -191,47 +158,31 @@ export async function POST(req: NextRequest) {
         ended_at: endIso,
         duration_s,
         is_planned,
-        status, // para clasificación (pending / classified)
-        source, // "auto" para Node-RED
-        notes: notes ?? "ingested from Node-RED",
+        status,
+        source,
+        notes: notes ?? "ingested from Gateway",
       };
 
       const { error: errIns } = await supabase.from("events").insert(row);
 
       if (errIns) {
-        console.error("events/ingest: error inserting event", errIns);
-        results.push({
-          ok: false,
-          error: "Error inserting event",
-          machine_code,
-        });
+        results.push({ ok: false, error: "Error inserting event", machine_code });
         continue;
       }
 
-      results.push({
-        ok: true,
-        machine_code,
-        shift_instance_id: shiftId,
-        duration_s,
-      });
+      results.push({ ok: true, machine_code, shift_instance_id: shiftId, duration_s });
     }
 
     const inserted = results.filter((r) => r.ok).length;
 
-    return NextResponse.json({
-      ok: inserted > 0,
-      inserted,
-      details: results,
-    });
-  } catch (err: any) {
-    console.error("events/ingest endpoint error:", err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: err?.message || "Unexpected events/ingest error",
-      },
-      { status: 500 }
+      { ok: inserted > 0, inserted, details: results },
+      { headers: corsHeaders }
+    );
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unexpected error" },
+      { status: 500, headers: corsHeaders }
     );
   }
 }
-
