@@ -86,7 +86,6 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const duration_s = Math.round(durationSecRaw);
       const startIso = start.toISOString();
       const endIso = end.toISOString();
 
@@ -116,7 +115,6 @@ export async function POST(req: NextRequest) {
           .from("v_shift_instances_resolved")
           .select("shift_instance_id, starts_at, ends_at")
           .eq("plant_id", plant_id)
-          .eq("line_id", machine.line_id)
           .lte("starts_at", startIso)
           .gt("ends_at", startIso)
           .order("starts_at", { ascending: true })
@@ -156,7 +154,6 @@ export async function POST(req: NextRequest) {
         machine_id: machine.id,
         started_at: startIso,
         ended_at: endIso,
-        duration_s,
         is_planned,
         status,
         source,
@@ -166,11 +163,11 @@ export async function POST(req: NextRequest) {
       const { error: errIns } = await supabase.from("events").insert(row);
 
       if (errIns) {
-        results.push({ ok: false, error: "Error inserting event", machine_code });
+        results.push({ ok: false, error: errIns.message, machine_code });
         continue;
       }
 
-      results.push({ ok: true, machine_code, shift_instance_id: shiftId, duration_s });
+      results.push({ ok: true, machine_code, shift_instance_id: shiftId });
     }
 
     const inserted = results.filter((r) => r.ok).length;
