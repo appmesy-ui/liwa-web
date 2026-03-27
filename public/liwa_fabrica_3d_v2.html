@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>LIWA · Fábrica Virtual 3D</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#060810; overflow:hidden; font-family:'Courier New',monospace; color:#e8eaf0; }
+canvas { display:block; }
+
+/* ── CONFIG SCREEN ─────────────────────────────────── */
+#config-screen {
+  position:fixed; inset:0; z-index:100;
+  background:#060810;
+  display:flex; flex-direction:column;
+  overflow-y:auto;
+}
+
+#config-screen::before {
+  content:'';
+  position:fixed; inset:0;
+  background-image:
+    linear-gradient(rgba(77,166,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77,166,255,0.03) 1px, transparent 1px);
+  background-size:40px 40px;
+  pointer-events:none;
+}
+
+.cfg-header {
+  padding:28px 40px 20px;
+  border-bottom:1px solid #1a1d24;
+  display:flex; align-items:center; justify-content:space-between;
+  position:relative; z-index:1;
+}
+
+.cfg-logo { display:flex; align-items:center; gap:14px; }
+.cfg-badge { background:#00d4a0; color:#000; font-weight:900; font-size:13px; padding:5px 11px; letter-spacing:0.1em; }
+.cfg-title { font-size:18px; font-weight:700; letter-spacing:0.05em; }
+.cfg-sub { color:#4a5568; font-size:10px; margin-top:2px; letter-spacing:0.08em; }
+
+.cfg-body { padding:32px 40px; position:relative; z-index:1; }
+
+.cfg-section-title {
+  font-size:9px; color:#4a5568; letter-spacing:0.14em; text-transform:uppercase;
+  margin-bottom:16px;
+  display:flex; align-items:center; gap:10px;
+}
+.cfg-section-title::after { content:''; flex:1; height:1px; background:#1a1d24; }
+
+/* Machine config rows */
+#machines-config { display:flex; flex-direction:column; gap:10px; margin-bottom:28px; }
+
+.mcfg-row {
+  display:grid;
+  grid-template-columns: 40px 140px 160px 130px 140px 130px 130px 36px;
+  gap:8px; align-items:center;
+  padding:12px 16px;
+  background:#0d1018;
+  border:1px solid #1a1d24;
+  transition:border-color 0.2s;
+}
+.mcfg-row:hover { border-color:#2a2d35; }
+
+.mcfg-num { color:#2a3a4a; font-size:11px; font-weight:700; text-align:center; }
+
+.mcfg-label { font-size:9px; color:#4a5568; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:3px; }
+
+input[type=text], input[type=number], select {
+  width:100%; background:#060810; border:1px solid #1a1d24;
+  color:#e8eaf0; font-family:'Courier New',monospace; font-size:11px;
+  padding:7px 10px; outline:none; transition:border-color 0.2s;
+}
+input[type=text]:focus, input[type=number]:focus, select:focus { border-color:#00d4a0; }
+input[type=number] { -moz-appearance:textfield; }
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; }
+
+select option { background:#0d1018; }
+
+.proto-select { position:relative; }
+.proto-dot {
+  display:inline-block; width:7px; height:7px; border-radius:50%;
+  margin-right:5px; vertical-align:middle;
+}
+
+.del-btn {
+  width:28px; height:28px; background:transparent;
+  border:1px solid #1a1d24; color:#2a3a4a;
+  cursor:pointer; font-size:14px; display:flex;
+  align-items:center; justify-content:center;
+  transition:all 0.15s;
+}
+.del-btn:hover { border-color:#ff4757; color:#ff4757; background:rgba(255,71,87,0.08); }
+
+/* Add machine btn */
+.add-machine-btn {
+  display:flex; align-items:center; gap:8px;
+  padding:10px 16px; background:transparent;
+  border:1px dashed #2a2d35; color:#4a5568;
+  cursor:pointer; font-family:'Courier New',monospace;
+  font-size:11px; letter-spacing:0.06em;
+  transition:all 0.15s; width:100%;
+}
+.add-machine-btn:hover { border-color:#00d4a0; color:#00d4a0; }
+
+/* Global config */
+.global-cfg {
+  display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;
+  margin-bottom:32px;
+}
+.gcfg-item { }
+
+/* Config table header */
+.mcfg-header {
+  display:grid;
+  grid-template-columns: 40px 140px 160px 130px 140px 130px 130px 36px;
+  gap:8px; padding:0 16px 8px;
+}
+.mcfg-hcell { font-size:8px; color:#2a3a4a; letter-spacing:0.1em; text-transform:uppercase; }
+
+/* Actions */
+.cfg-actions {
+  display:flex; align-items:center; gap:12px;
+  padding:20px 40px;
+  border-top:1px solid #1a1d24;
+  position:relative; z-index:1;
+}
+
+.btn-primary {
+  background:#00d4a0; color:#000;
+  font-family:'Courier New',monospace; font-size:12px;
+  font-weight:900; letter-spacing:0.1em; text-transform:uppercase;
+  padding:12px 32px; border:none; cursor:pointer;
+  transition:filter 0.15s;
+}
+.btn-primary:hover { filter:brightness(1.1); }
+
+.btn-secondary {
+  background:transparent; color:#4a5568;
+  border:1px solid #2a2d35;
+  font-family:'Courier New',monospace; font-size:11px;
+  letter-spacing:0.08em; text-transform:uppercase;
+  padding:11px 20px; cursor:pointer; transition:all 0.15s;
+}
+.btn-secondary:hover { color:#e8eaf0; border-color:#4a5568; }
+
+.cfg-info {
+  margin-left:auto; font-size:10px; color:#2a3a4a; letter-spacing:0.06em;
+}
+
+/* ── 3D FACTORY UI ─────────────────────────────────── */
+#factory-ui {
+  position:fixed; inset:0; z-index:10;
+  pointer-events:none;
+  display:none;
+}
+
+#fheader {
+  position:absolute; top:0; left:0; right:0;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 22px;
+  background:linear-gradient(to bottom, rgba(6,8,16,0.97), transparent);
+}
+.flogo { display:flex; align-items:center; gap:10px; }
+.flogo-badge { background:#00d4a0; color:#000; font-weight:900; font-size:12px; padding:4px 9px; letter-spacing:0.1em; }
+.flogo-title { font-size:15px; font-weight:700; letter-spacing:0.04em; }
+.flogo-sub { color:#4a5568; font-size:9px; margin-top:1px; letter-spacing:0.07em; }
+
+.fpill {
+  display:flex; align-items:center; gap:6px;
+  padding:5px 11px; border:1px solid #2a2d35;
+  background:rgba(6,8,16,0.85); color:#4a5568;
+  font-size:9px; letter-spacing:0.08em;
+  pointer-events:all;
+}
+.fpill.online { border-color:#00d4a0; color:#00d4a0; }
+.dot { width:5px; height:5px; border-radius:50%; background:currentColor; }
+.dot.pulse { animation:dp 1.5s ease-in-out infinite; }
+@keyframes dp { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+#fstats {
+  position:absolute; top:60px; left:50%; transform:translateX(-50%);
+  display:flex; gap:1px;
+}
+.fstat {
+  background:rgba(6,8,16,0.92); border:1px solid #1a1d24;
+  padding:8px 18px; text-align:center; min-width:90px;
+}
+.fstat-lbl { color:#2a3a4a; font-size:7px; letter-spacing:0.1em; text-transform:uppercase; }
+.fstat-val { font-size:18px; font-weight:700; color:#e8eaf0; margin-top:1px; }
+.fstat-val.g { color:#00d4a0; }
+.fstat-val.a { color:#ffb300; }
+.fstat-val.r { color:#ff4757; }
+
+/* Machine cards side */
+#mcards {
+  position:absolute; left:22px; top:50%; transform:translateY(-50%);
+  display:flex; flex-direction:column; gap:5px; max-height:70vh; overflow-y:auto;
+}
+.mcard {
+  padding:7px 11px; min-width:170px;
+  border-left:2px solid #2a2d35;
+  background:rgba(6,8,16,0.9);
+  transition:border-color 0.3s;
+}
+.mcard.run { border-left-color:#00d4a0; }
+.mcard.stp { border-left-color:#ff4757; }
+.mcard-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.mcard-code { font-size:12px; font-weight:700; }
+.mcard-name { font-size:8px; color:#4a5568; letter-spacing:0.05em; margin-top:1px; }
+.mbadge { font-size:8px; font-weight:700; padding:2px 6px; letter-spacing:0.08em; }
+.mbadge.run { color:#00d4a0; border:1px solid #00d4a0; background:rgba(0,212,160,0.07); }
+.mbadge.stp { color:#ff4757; border:1px solid #ff4757; background:rgba(255,71,87,0.07); }
+.mbadge.idle{ color:#4a5568; border:1px solid #2a2d35; }
+.mcard-metrics { display:flex; gap:10px; margin-top:4px; flex-wrap:wrap; }
+.mm { font-size:9px; }
+.mm span { color:#4a5568; font-size:8px; }
+
+/* LOG */
+#flog {
+  position:absolute; right:22px; top:110px;
+  width:290px; max-height:calc(100vh - 220px);
+  background:rgba(6,8,16,0.93); border:1px solid #151820;
+  display:flex; flex-direction:column;
+}
+.flog-hdr {
+  padding:7px 11px; border-bottom:1px solid #151820;
+  display:flex; align-items:center; justify-content:space-between;
+  color:#2a3a4a; font-size:8px; letter-spacing:0.1em;
+}
+.flog-clr { pointer-events:all; cursor:pointer; background:none; border:none; color:#2a3a4a; font-size:8px; font-family:'Courier New',monospace; }
+.flog-clr:hover { color:#4a5568; }
+.flog-body { overflow-y:auto; flex:1; padding:3px 0; }
+.flog-entry { padding:2px 11px; font-size:9px; display:flex; gap:6px; border-left:2px solid transparent; }
+.flog-entry.ok  { border-left-color:#00d4a0; }
+.flog-entry.err { border-left-color:#ff4757; }
+.flog-entry.inf { border-left-color:#4da6ff; }
+.flog-entry.wrn { border-left-color:#ffb300; }
+.flog-t   { color:#1a2535; font-size:8px; min-width:52px; }
+.flog-tag { font-size:7px; font-weight:700; padding:1px 4px; letter-spacing:0.07em; white-space:nowrap; }
+.flog-tag.EVENT { color:#ff4757; background:rgba(255,71,87,0.1); }
+.flog-tag.PROD  { color:#00d4a0; background:rgba(0,212,160,0.1); }
+.flog-tag.INFO  { color:#4da6ff; background:rgba(77,166,255,0.1); }
+.flog-tag.ERR   { color:#ff4757; background:rgba(255,71,87,0.15); }
+.flog-msg { color:#4a5568; flex:1; }
+
+/* Bottom controls */
+#fcontrols {
+  position:absolute; bottom:0; left:0; right:0;
+  padding:16px 22px;
+  background:linear-gradient(to top, rgba(6,8,16,0.98) 60%, transparent);
+  display:flex; align-items:center; gap:10px;
+  pointer-events:all;
+}
+.fbtn {
+  font-family:'Courier New',monospace; font-size:10px; font-weight:700;
+  letter-spacing:0.1em; text-transform:uppercase;
+  padding:8px 18px; border:none; cursor:pointer; transition:all 0.15s;
+}
+.fbtn-start { background:#00d4a0; color:#000; }
+.fbtn-start:hover { filter:brightness(1.1); }
+.fbtn-start:disabled { background:#0d2a20; color:#1a4a35; cursor:not-allowed; }
+.fbtn-stop { background:transparent; color:#ff4757; border:1px solid #ff4757; }
+.fbtn-stop:hover { background:rgba(255,71,87,0.1); }
+.fbtn-stop:disabled { opacity:0.25; cursor:not-allowed; }
+.fbtn-cfg { background:transparent; color:#4a5568; border:1px solid #2a2d35; }
+.fbtn-cfg:hover { color:#e8eaf0; border-color:#4a5568; }
+.fspeed { display:flex; align-items:center; gap:7px; margin-left:auto; font-size:9px; color:#4a5568; letter-spacing:0.08em; }
+select.fsel {
+  background:#0d1017; border:1px solid #2a2d35; color:#e8eaf0;
+  font-family:'Courier New',monospace; font-size:9px; padding:5px 8px; outline:none; cursor:pointer;
+}
+
+::-webkit-scrollbar { width:3px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#1a2030; }
+</style>
+</head>
+<body>
+
+<!-- ══ CONFIG SCREEN ══════════════════════════════════ -->
+<div id="config-screen">
+  <div class="cfg-header">
+    <div class="cfg-logo">
+      <div class="cfg-badge">LIWA</div>
+      <div>
+        <div class="cfg-title">Configurador de Fábrica</div>
+        <div class="cfg-sub">Define tus máquinas y parámetros antes de simular</div>
+      </div>
+    </div>
+    <div style="font-size:9px;color:#2a3a4a;letter-spacing:0.08em;">TecnoFab Demo · Planta Demo · Línea 1</div>
+  </div>
+
+  <div class="cfg-body">
+
+    <!-- Global settings -->
+    <div class="cfg-section-title">Parámetros globales</div>
+    <div class="global-cfg" style="margin-bottom:28px;">
+      <div>
+        <div class="mcfg-label">Duración de simulación</div>
+        <select id="g-duration">
+          <option value="0">Sin límite</option>
+          <option value="3600">1 turno (8h sim)</option>
+          <option value="900">Demo rápida (15min sim)</option>
+        </select>
+      </div>
+      <div>
+        <div class="mcfg-label">Velocidad por defecto</div>
+        <select id="g-speed">
+          <option value="1">×1 — Tiempo real</option>
+          <option value="5" selected>×5 — Rápido</option>
+          <option value="20">×20 — Demo</option>
+          <option value="60">×60 — Turbo</option>
+        </select>
+      </div>
+      <div>
+        <div class="mcfg-label">Umbral microparo (seg sim)</div>
+        <input type="number" id="g-micro" value="5" min="1" max="60" style="width:100%">
+      </div>
+    </div>
+
+    <!-- Machine list -->
+    <div class="cfg-section-title">Máquinas</div>
+
+    <div class="mcfg-header">
+      <div class="mcfg-hcell">#</div>
+      <div class="mcfg-hcell">Código LIWA</div>
+      <div class="mcfg-hcell">Nombre</div>
+      <div class="mcfg-hcell">Protocolo</div>
+      <div class="mcfg-hcell">Ciclo ideal (s)</div>
+      <div class="mcfg-hcell">Prob. paro (%)</div>
+      <div class="mcfg-hcell">Color 3D</div>
+      <div class="mcfg-hcell"></div>
+    </div>
+
+    <div id="machines-config"></div>
+
+    <button class="add-machine-btn" onclick="addMachine()">
+      <span style="font-size:16px;line-height:1;">+</span>
+      AÑADIR MÁQUINA
+    </button>
+
+  </div>
+
+  <div class="cfg-actions">
+    <button class="btn-primary" onclick="launchFactory()">▶ LANZAR FÁBRICA</button>
+    <button class="btn-secondary" onclick="loadPreset('food')">PRESET: ALIMENTACIÓN</button>
+    <button class="btn-secondary" onclick="loadPreset('packaging')">PRESET: ENVASADO</button>
+    <button class="btn-secondary" onclick="resetConfig()">↺ RESET</button>
+    <div class="cfg-info" id="cfg-info">4 máquinas configuradas</div>
+  </div>
+</div>
+
+<!-- ══ FACTORY UI ════════════════════════════════════ -->
+<div id="factory-ui">
+  <div id="fheader">
+    <div class="flogo">
+      <div class="flogo-badge">LIWA</div>
+      <div>
+        <div class="flogo-title">Fábrica Virtual 3D</div>
+        <div class="flogo-sub" id="fheader-sub">TecnoFab Demo · Planta Demo</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div class="fpill" id="conn-pill"><div class="dot" id="conn-dot"></div><span id="conn-lbl">OFFLINE</span></div>
+      <div class="fpill">liwa-web.vercel.app</div>
+    </div>
+  </div>
+
+  <div id="fstats">
+    <div class="fstat"><div class="fstat-lbl">OEE Global</div><div class="fstat-val g" id="s-oee">—</div></div>
+    <div class="fstat"><div class="fstat-lbl">Unidades</div><div class="fstat-val" id="s-units">0</div></div>
+    <div class="fstat"><div class="fstat-lbl">Paros</div><div class="fstat-val a" id="s-stops">0</div></div>
+    <div class="fstat"><div class="fstat-lbl">Microparos</div><div class="fstat-val" id="s-micro">0</div></div>
+    <div class="fstat"><div class="fstat-lbl">Tiempo sim</div><div class="fstat-val" id="s-time">00:00</div></div>
+  </div>
+
+  <div id="mcards"></div>
+  <div id="flog">
+    <div class="flog-hdr"><span>TRANSMISSION LOG</span><button class="flog-clr" onclick="clearLog()">CLR</button></div>
+    <div class="flog-body" id="log-body"></div>
+  </div>
+
+  <div id="fcontrols">
+    <button class="fbtn fbtn-start" id="btn-start" onclick="startSim()">▶ ARRANCAR</button>
+    <button class="fbtn fbtn-stop"  id="btn-stop"  onclick="stopSim()" disabled>■ PARAR</button>
+    <button class="fbtn fbtn-cfg"   onclick="goConfig()">⚙ CONFIGURAR</button>
+    <div class="fspeed">
+      <span>VELOCIDAD</span>
+      <select class="fsel" id="fspd" onchange="simSpeed=parseInt(this.value)">
+        <option value="1">×1</option>
+        <option value="5" selected>×5</option>
+        <option value="20">×20</option>
+        <option value="60">×60</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════
+const ORG_ID   = 'ba83e018-ef7c-4daa-aebf-c5557b1baccc';
+const PLANT_ID = '35837416-7ad8-46c0-b959-8ef4c5f19fbb';
+const BASE_URL = 'https://liwa-web.vercel.app';
+
+const PROTOCOLS = ['HTTP','MQTT','OPC-UA','Modbus','S7','REST'];
+const PROTO_COLORS = {
+  'HTTP':   {hex:'#2dd4bf', num:0x2dd4bf},
+  'MQTT':   {hex:'#ffb300', num:0xffb300},
+  'OPC-UA': {hex:'#4da6ff', num:0x4da6ff},
+  'Modbus': {hex:'#a78bfa', num:0xa78bfa},
+  'S7':     {hex:'#fb923c', num:0xfb923c},
+  'REST':   {hex:'#f472b6', num:0xf472b6},
+};
+
+const COLORS_3D = [
+  {label:'Teal',   val:'#2dd4bf'},
+  {label:'Amber',  val:'#ffb300'},
+  {label:'Blue',   val:'#4da6ff'},
+  {label:'Purple', val:'#a78bfa'},
+  {label:'Orange', val:'#fb923c'},
+  {label:'Pink',   val:'#f472b6'},
+  {label:'Green',  val:'#00d4a0'},
+  {label:'Red',    val:'#ff4757'},
+];
+
+const PRESETS = {
+  food: [
+    {code:'M1', name:'Dosificador',   protocol:'HTTP',   cycle:0.5,  stopProb:12, color:'#2dd4bf'},
+    {code:'M2', name:'Amasadora',     protocol:'MQTT',   cycle:0.4,  stopProb:10, color:'#ffb300'},
+    {code:'M5', name:'Slitter/Corte', protocol:'OPC-UA', cycle:0.5,  stopProb:15, color:'#4da6ff'},
+    {code:'M7', name:'Enfriador',     protocol:'Modbus', cycle:0.43, stopProb:8,  color:'#a78bfa'},
+  ],
+  packaging: [
+    {code:'P1', name:'Formadora',     protocol:'MQTT',   cycle:0.3,  stopProb:14, color:'#00d4a0'},
+    {code:'P2', name:'Llenadora',     protocol:'OPC-UA', cycle:0.25, stopProb:18, color:'#4da6ff'},
+    {code:'P3', name:'Selladora',     protocol:'Modbus', cycle:0.35, stopProb:10, color:'#a78bfa'},
+    {code:'P4', name:'Etiquetadora',  protocol:'HTTP',   cycle:0.4,  stopProb:8,  color:'#ffb300'},
+    {code:'P5', name:'Paletizadora',  protocol:'S7',     cycle:1.2,  stopProb:6,  color:'#fb923c'},
+  ],
+};
+
+// ═══════════════════════════════════════════════════════
+// CONFIG STATE
+// ═══════════════════════════════════════════════════════
+let configMachines = [];
+let machineIdCounter = 0;
+let microThreshold = 5;
+
+function addMachine(data) {
+  const id = ++machineIdCounter;
+  const m = data || {
+    code: 'M' + id,
+    name: 'Máquina ' + id,
+    protocol: 'MQTT',
+    cycle: 0.5,
+    stopProb: 10,
+    color: COLORS_3D[(id-1) % COLORS_3D.length].val,
+  };
+  m._id = id;
+  configMachines.push(m);
+  renderConfigList();
+}
+
+function removeMachine(id) {
+  configMachines = configMachines.filter(m => m._id !== id);
+  renderConfigList();
+}
+
+function renderConfigList() {
+  const container = document.getElementById('machines-config');
+  container.innerHTML = '';
+  configMachines.forEach((m, i) => {
+    const protoOptions = PROTOCOLS.map(p =>
+      `<option value="${p}" ${m.protocol===p?'selected':''}>${p}</option>`
+    ).join('');
+    const colorOptions = COLORS_3D.map(c =>
+      `<option value="${c.val}" ${m.color===c.val?'selected':''}>${c.label}</option>`
+    ).join('');
+
+    container.innerHTML += `
+    <div class="mcfg-row" id="row-${m._id}">
+      <div class="mcfg-num">${i+1}</div>
+      <div>
+        <div class="mcfg-label">Código</div>
+        <input type="text" value="${m.code}" maxlength="4"
+          onchange="updateMachine(${m._id},'code',this.value)"
+          style="text-transform:uppercase;font-weight:700;">
+      </div>
+      <div>
+        <div class="mcfg-label">Nombre</div>
+        <input type="text" value="${m.name}" maxlength="20"
+          onchange="updateMachine(${m._id},'name',this.value)">
+      </div>
+      <div>
+        <div class="mcfg-label">Protocolo</div>
+        <select onchange="updateMachine(${m._id},'protocol',this.value)">${protoOptions}</select>
+      </div>
+      <div>
+        <div class="mcfg-label">Ciclo ideal (s/ud)</div>
+        <input type="number" value="${m.cycle}" min="0.1" max="60" step="0.01"
+          onchange="updateMachine(${m._id},'cycle',parseFloat(this.value))">
+      </div>
+      <div>
+        <div class="mcfg-label">Prob. paro (%)</div>
+        <input type="number" value="${m.stopProb}" min="1" max="50" step="1"
+          onchange="updateMachine(${m._id},'stopProb',parseInt(this.value))">
+      </div>
+      <div>
+        <div class="mcfg-label">Color 3D</div>
+        <select onchange="updateMachine(${m._id},'color',this.value)">${colorOptions}</select>
+      </div>
+      <button class="del-btn" onclick="removeMachine(${m._id})" title="Eliminar">×</button>
+    </div>`;
+  });
+  document.getElementById('cfg-info').textContent =
+    configMachines.length + ' máquina' + (configMachines.length!==1?'s':'') + ' configurada' + (configMachines.length!==1?'s':'');
+}
+
+function updateMachine(id, field, val) {
+  const m = configMachines.find(x => x._id === id);
+  if(m) m[field] = val;
+}
+
+function loadPreset(name) {
+  configMachines = [];
+  machineIdCounter = 0;
+  PRESETS[name].forEach(m => addMachine(m));
+}
+
+function resetConfig() {
+  configMachines = [];
+  machineIdCounter = 0;
+  loadPreset('food');
+}
+
+// ═══════════════════════════════════════════════════════
+// LAUNCH
+// ═══════════════════════════════════════════════════════
+function launchFactory() {
+  if(configMachines.length === 0) {
+    alert('Añade al menos una máquina antes de lanzar.');
+    return;
+  }
+  microThreshold = parseInt(document.getElementById('g-micro').value) || 5;
+  simSpeed = parseInt(document.getElementById('g-speed').value) || 5;
+  document.getElementById('fspd').value = simSpeed;
+
+  document.getElementById('config-screen').style.display = 'none';
+  document.getElementById('factory-ui').style.display = 'block';
+  document.getElementById('fheader-sub').textContent =
+    'TecnoFab Demo · ' + configMachines.length + ' máquinas · Línea 1';
+
+  buildFactory();
+  buildMachineCards();
+  initSimState();
+  addLog('INFO','inf','Fábrica configurada · '+configMachines.length+' máquinas · umbral micro: '+microThreshold+'s');
+  addLog('INFO','inf','Arrastra para rotar · scroll para zoom');
+}
+
+function goConfig() {
+  stopSim();
+  document.getElementById('config-screen').style.display = 'flex';
+  document.getElementById('factory-ui').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════
+// THREE.JS
+// ═══════════════════════════════════════════════════════
+let renderer, scene, camera;
+let camTheta=0, camPhi=0.55, camRadius=18;
+let isDragging=false, prevMouse={x:0,y:0};
+let threeInitialized = false;
+let machineObjs = {};
+let smokeList = [];
+let beltParticles, beltGeo, beltColors, beltPositions;
+let animFrameId;
+let threeClock;
+
+function initThree() {
+  if(threeInitialized) return;
+  threeInitialized = true;
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setClearColor(0x060810);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
+  document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+  scene  = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x060810, 0.035);
+
+  camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 100);
+  camera.position.set(0, 9, 16);
+
+  threeClock = new THREE.Clock();
+
+  renderer.domElement.addEventListener('mousedown', e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};});
+  renderer.domElement.addEventListener('mouseup', ()=>isDragging=false);
+  renderer.domElement.addEventListener('mousemove', e=>{
+    if(!isDragging) return;
+    camTheta -= (e.clientX-prevMouse.x)*0.008;
+    camPhi = Math.max(0.15, Math.min(1.2, camPhi+(e.clientY-prevMouse.y)*0.006));
+    prevMouse = {x:e.clientX,y:e.clientY};
+  });
+  renderer.domElement.addEventListener('wheel', e=>{
+    camRadius = Math.max(5, Math.min(30, camRadius+e.deltaY*0.015));
+  });
+  window.addEventListener('resize', ()=>{
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+function buildFactory() {
+  initThree();
+
+  // Clear previous factory objects
+  while(scene.children.length > 0) scene.remove(scene.children[0]);
+  machineObjs = {};
+  smokeList = [];
+
+  const N = configMachines.length;
+  const spacing = Math.min(5.5, 22 / Math.max(N,1));
+  const totalW  = (N-1) * spacing;
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0x1a2035, 3));
+  const dir = new THREE.DirectionalLight(0x6080ff, 1.5);
+  dir.position.set(5,12,8);
+  dir.castShadow = true;
+  dir.shadow.camera.left=-20; dir.shadow.camera.right=20;
+  dir.shadow.camera.top=12;   dir.shadow.camera.bottom=-12;
+  dir.shadow.mapSize.width=dir.shadow.mapSize.height=2048;
+  scene.add(dir);
+
+  // Overhead lights
+  configMachines.forEach((m,i) => {
+    const x = -totalW/2 + i*spacing;
+    const pt = new THREE.PointLight(0x4060ff, 0.7, 10);
+    pt.position.set(x, 7, -1);
+    scene.add(pt);
+    const fix = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5,0.07,0.5),
+      new THREE.MeshStandardMaterial({color:0x222233,metalness:0.8,roughness:0.2})
+    );
+    fix.position.set(x, 7.4, -1);
+    scene.add(fix);
+  });
+
+  // Floor
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(50,20),
+    new THREE.MeshStandardMaterial({color:0x0d1020,metalness:0.3,roughness:0.8})
+  );
+  floor.rotation.x=-Math.PI/2; floor.position.y=-0.01;
+  floor.receiveShadow=true; scene.add(floor);
+  const grid = new THREE.GridHelper(50,50,0x151830,0x0d1020);
+  grid.position.y=0.001; scene.add(grid);
+
+  // Wall
+  const wall = new THREE.Mesh(
+    new THREE.PlaneGeometry(50,12),
+    new THREE.MeshStandardMaterial({color:0x080c18,roughness:0.9})
+  );
+  wall.position.set(0,6,-5); scene.add(wall);
+
+  // Conveyor
+  const beltW = totalW + 4;
+  const beltMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(beltW, 0.12, 1.2),
+    new THREE.MeshStandardMaterial({color:0x1a1f2e,roughness:0.9,metalness:0.1})
+  );
+  beltMesh.position.set(0, 0.5, 0);
+  beltMesh.receiveShadow=true; scene.add(beltMesh);
+
+  for(let x=-beltW/2; x<=beltW/2; x+=1.4) {
+    const roller = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07,0.07,1.2,8),
+      new THREE.MeshStandardMaterial({color:0x2a3040,metalness:0.7,roughness:0.3})
+    );
+    roller.position.set(x, 0.44, 0); scene.add(roller);
+  }
+  [-0.65,0.65].forEach(z => {
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(beltW,0.16,0.05),
+      new THREE.MeshStandardMaterial({color:0x3a4060,metalness:0.8,roughness:0.3})
+    );
+    rail.position.set(0,0.64,z); scene.add(rail);
+  });
+
+  // Belt particles
+  const PC = 80;
+  beltPositions = new Float32Array(PC*3);
+  beltColors    = new Float32Array(PC*3);
+  const beltSizes = new Float32Array(PC);
+  for(let i=0; i<PC; i++) {
+    beltPositions[i*3]   = (Math.random()-0.5)*beltW;
+    beltPositions[i*3+1] = 0.62;
+    beltPositions[i*3+2] = (Math.random()-0.5)*0.55;
+    beltSizes[i] = 5+Math.random()*7;
+    beltColors[i*3]=0.15; beltColors[i*3+1]=0.5; beltColors[i*3+2]=0.3;
+  }
+  beltGeo = new THREE.BufferGeometry();
+  beltGeo.setAttribute('position', new THREE.BufferAttribute(beltPositions,3));
+  beltGeo.setAttribute('color',    new THREE.BufferAttribute(beltColors,3));
+  beltGeo.setAttribute('size',     new THREE.BufferAttribute(beltSizes,1));
+  beltParticles = new THREE.Points(beltGeo, new THREE.PointsMaterial({
+    size:0.11, vertexColors:true, transparent:true, opacity:0.85, sizeAttenuation:true
+  }));
+  scene.add(beltParticles);
+
+  // Machines
+  configMachines.forEach((m, i) => {
+    const x = -totalW/2 + i*spacing;
+    const colorNum = parseInt(m.color.replace('#',''), 16);
+    const group = new THREE.Group();
+    group.position.set(x, 0, 0);
+
+    // Base
+    const base = new THREE.Mesh(
+      new THREE.BoxGeometry(spacing*0.7, 0.14, 2.8),
+      new THREE.MeshStandardMaterial({color:0x141824,metalness:0.6,roughness:0.4})
+    );
+    base.position.y=0.07; base.castShadow=true; base.receiveShadow=true;
+    group.add(base);
+
+    // Body - vary by index
+    const shapes = [
+      new THREE.CylinderGeometry(0.55,0.65,2.0,12),
+      new THREE.BoxGeometry(1.5,2.2,1.6),
+      new THREE.BoxGeometry(1.4,1.6,1.8),
+      new THREE.BoxGeometry(1.6,1.4,1.8),
+      new THREE.CylinderGeometry(0.6,0.7,1.8,8),
+      new THREE.BoxGeometry(1.3,2.0,1.5),
+    ];
+    const bodyGeo = shapes[i % shapes.length];
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color:0x141c28, metalness:0.7, roughness:0.35
+    });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.set(0, 1.2, -0.9);
+    body.castShadow=true; body.receiveShadow=true;
+    group.add(body);
+
+    // Color accent panel
+    const panel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07,0.7,0.5),
+      new THREE.MeshStandardMaterial({color:colorNum,emissive:colorNum,emissiveIntensity:0.4,metalness:0.2,roughness:0.5})
+    );
+    panel.position.set(0.75, 1.2, -0.9);
+    group.add(panel);
+
+    // Status light
+    const lightSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1,10,10),
+      new THREE.MeshStandardMaterial({color:0x333333,emissive:0x111111,emissiveIntensity:0.3})
+    );
+    lightSphere.position.set(0, 2.5, -0.9);
+    group.add(lightSphere);
+
+    const statusLight = new THREE.PointLight(0x333333, 0, 2.5);
+    statusLight.position.set(0, 2.7, -0.9);
+    group.add(statusLight);
+
+    // Pipes
+    for(let p=0; p<2; p++) {
+      const pipe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035,0.035,0.4,6),
+        new THREE.MeshStandardMaterial({color:0x2a3545,metalness:0.9,roughness:0.2})
+      );
+      pipe.position.set(-0.3+p*0.5, 2.2, -0.5);
+      pipe.rotation.x=Math.PI/2;
+      group.add(pipe);
+    }
+
+    scene.add(group);
+
+    // Smoke
+    for(let s=0; s<6; s++) {
+      const smoke = new THREE.Mesh(
+        new THREE.SphereGeometry(0.07+Math.random()*0.05,6,6),
+        new THREE.MeshStandardMaterial({color:0x8090b0,transparent:true,opacity:0,depthWrite:false})
+      );
+      smoke.position.set(x+(Math.random()-0.5)*0.4, 3.2+Math.random()*1.2, -0.9+(Math.random()-0.5)*0.3);
+      smoke.userData = {
+        baseX:x, machCode:m.code,
+        speed:0.3+Math.random()*0.4,
+        phase:Math.random()*Math.PI*2,
+        life:Math.random()
+      };
+      scene.add(smoke);
+      smokeList.push(smoke);
+    }
+
+    machineObjs[m.code] = { group, body, bodyMat, lightSphere, statusLight, panel, colorNum, x };
+  });
+
+  // Adjust camera
+  camRadius = Math.max(10, N * 3.5);
+
+  // Start render loop
+  if(animFrameId) cancelAnimationFrame(animFrameId);
+  renderLoop();
+}
+
+function renderLoop() {
+  animFrameId = requestAnimationFrame(renderLoop);
+  const dt = threeClock.getDelta();
+  const t  = threeClock.getElapsedTime();
+
+  camera.position.x = Math.sin(camTheta)*camRadius*Math.cos(camPhi);
+  camera.position.y = Math.sin(camPhi)*camRadius;
+  camera.position.z = Math.cos(camTheta)*camRadius*Math.cos(camPhi);
+  camera.lookAt(0,1,0);
+
+  // Machine animations
+  configMachines.forEach((m,i) => {
+    const obj = machineObjs[m.code];
+    if(!obj) return;
+    const s = simState[m.code];
+    if(!s) return;
+
+    if(simRunning && s.running) {
+      obj.body.rotation.z = Math.sin(t*18 + i) * 0.003;
+      obj.statusLight.color.setHex(obj.colorNum);
+      obj.statusLight.intensity = 1.4 + Math.sin(t*2.5)*0.3;
+      obj.lightSphere.material.emissive.setHex(obj.colorNum);
+      obj.lightSphere.material.emissiveIntensity = 0.75+Math.sin(t*2.5)*0.2;
+      obj.panel.material.emissiveIntensity = 0.45+Math.sin(t*1.8)*0.2;
+    } else if(simRunning && !s.running) {
+      obj.body.rotation.z = 0;
+      obj.statusLight.color.setHex(0xff4757);
+      obj.statusLight.intensity = 0.7+Math.sin(t*9)*0.6;
+      obj.lightSphere.material.emissive.setHex(0xff4757);
+      obj.lightSphere.material.emissiveIntensity = 0.5+Math.sin(t*9)*0.4;
+      obj.panel.material.emissiveIntensity = 0.05;
+    } else {
+      obj.body.rotation.z=0;
+      obj.statusLight.intensity=0;
+      obj.lightSphere.material.emissive.setHex(0x111111);
+      obj.lightSphere.material.emissiveIntensity=0.08;
+      obj.panel.material.emissiveIntensity=0.08;
+    }
+  });
+
+  // Belt particles
+  if(simRunning && beltPositions) {
+    const beltW = ((configMachines.length-1)*Math.min(5.5,22/Math.max(configMachines.length,1)))+4;
+    for(let i=0; i<beltPositions.length/3; i++) {
+      beltPositions[i*3] += 0.025*simSpeed*0.04;
+      if(beltPositions[i*3] > beltW/2) beltPositions[i*3] = -beltW/2;
+      let r=0.12,g=0.5,b=0.32;
+      configMachines.forEach(m => {
+        const obj = machineObjs[m.code];
+        if(obj && Math.abs(beltPositions[i*3]-obj.x)<1.2 && simState[m.code] && !simState[m.code].running) {
+          r=0.8;g=0.18;b=0.18;
+        }
+      });
+      beltColors[i*3]=r; beltColors[i*3+1]=g; beltColors[i*3+2]=b;
+    }
+    beltGeo.attributes.position.needsUpdate=true;
+    beltGeo.attributes.color.needsUpdate=true;
+  }
+
+  // Smoke
+  smokeList.forEach(s => {
+    const mc = s.userData.machCode;
+    const running = simRunning && simState[mc] && simState[mc].running;
+    s.userData.life += dt*(running?0.4:0.08);
+    if(s.userData.life>1) {
+      s.userData.life=0;
+      s.position.set(
+        s.userData.baseX+(Math.random()-0.5)*0.4, 3.1,
+        -0.9+(Math.random()-0.5)*0.3
+      );
+    }
+    s.position.y += dt*s.userData.speed*(running?1.4:0.2);
+    s.position.x += Math.sin(t+s.userData.phase)*dt*0.07;
+    s.material.opacity = running
+      ? Math.sin(s.userData.life*Math.PI)*0.22
+      : Math.sin(s.userData.life*Math.PI)*0.04;
+    s.scale.setScalar(1+s.userData.life*1.4);
+  });
+
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════════════
+// SIM STATE
+// ═══════════════════════════════════════════════════════
+let simState   = {};
+let simRunning = false;
+let simSpeed   = 5;
+let simSecs    = 0;
+let totalUnits=0, totalStops=0, totalMicro=0;
+let stopTimers={}, prodTimers={}, globalClockTimer;
+
+function initSimState() {
+  simState={};
+  configMachines.forEach(m => {
+    simState[m.code]={
+      running:false,units:0,scrap:0,stops:0,
+      totalRunTime:0,totalStopTime:0,
+      stopStart:null,lastProdSend:null,oee:0,
+    };
+  });
+  totalUnits=totalStops=totalMicro=simSecs=0;
+}
+
+function startSim() {
+  if(simRunning) return;
+  simRunning=true;
+  document.getElementById('btn-start').disabled=true;
+  document.getElementById('btn-stop').disabled=false;
+  document.getElementById('conn-pill').className='fpill online';
+  document.getElementById('conn-dot').className='dot pulse';
+  document.getElementById('conn-lbl').textContent='ONLINE';
+  addLog('INFO','inf','Simulación iniciada · '+configMachines.length+' máquinas · ×'+simSpeed);
+
+  configMachines.forEach(m => {
+    simState[m.code].running=true;
+    simState[m.code].lastProdSend=new Date();
+    updateCard(m.code);
+    scheduleStop(m);
+    scheduleProd(m);
+  });
+
+  globalClockTimer=setInterval(()=>{ simSecs+=simSpeed; updateGlobal(); },1000);
+}
+
+function stopSim() {
+  if(!simRunning) return;
+  simRunning=false;
+  clearInterval(globalClockTimer);
+  configMachines.forEach(m=>{
+    clearTimeout(stopTimers[m.code]);
+    clearTimeout(prodTimers[m.code]);
+    simState[m.code].running=false;
+    updateCard(m.code);
+  });
+  document.getElementById('btn-start').disabled=false;
+  document.getElementById('btn-stop').disabled=true;
+  document.getElementById('conn-pill').className='fpill';
+  document.getElementById('conn-dot').className='dot';
+  document.getElementById('conn-lbl').textContent='OFFLINE';
+  addLog('INFO','inf','Simulación detenida');
+}
+
+function scheduleStop(m) {
+  if(!simRunning) return;
+  const delay=(5+Math.random()*12)*1000;
+  stopTimers[m.code]=setTimeout(()=>{
+    if(!simRunning) return;
+    if(simState[m.code].running && Math.random()<(m.stopProb/100)*1.5) triggerStop(m);
+    else scheduleStop(m);
+  }, delay);
+}
+
+function triggerStop(m) {
+  const s=simState[m.code];
+  if(!s.running) return;
+  const roll=Math.random();
+  let simDur;
+  if(roll<0.22)      simDur=1+Math.random()*(microThreshold-1);
+  else if(roll<0.65) simDur=30+Math.random()*270;
+  else if(roll<0.90) simDur=300+Math.random()*600;
+  else               simDur=900+Math.random()*1800;
+
+  const realMs=(simDur/simSpeed)*1000;
+  const isMicro=simDur<microThreshold;
+  s.running=false;
+  s.stopStart=new Date();
+  updateCard(m.code);
+  addLog('EVENT','wrn',`${m.code} · PARO · ~${Math.round(simDur)}s${isMicro?' ⚡micro':''} · ${m.protocol}`);
+
+  setTimeout(()=>{
+    if(!simRunning) return;
+    const end=new Date();
+    s.running=true;
+    s.stops++;
+    s.totalStopTime+=simDur;
+    totalStops++;
+    if(isMicro) totalMicro++;
+    updateCard(m.code);
+    sendEvent(m,s.stopStart,end,isMicro);
+    scheduleStop(m);
+  }, realMs);
+}
+
+function scheduleProd(m) {
+  if(!simRunning) return;
+  prodTimers[m.code]=setTimeout(()=>{
+    if(!simRunning) return;
+    flushProd(m);
+    scheduleProd(m);
+  }, 30000);
+}
+
+function flushProd(m) {
+  const s=simState[m.code];
+  const now=new Date();
+  const ws=s.lastProdSend;
+  s.lastProdSend=now;
+  const realSec=(now-ws)/1000;
+  const simSec=realSec*simSpeed;
+  const runFrac=0.78+Math.random()*0.17;
+  const runT=simSec*runFrac;
+  const units=Math.max(0,Math.floor(runT/m.cycle)+Math.floor(Math.random()*3-1));
+  const scrap=Math.floor(units*(0.01+Math.random()*0.04));
+  const good=Math.max(0,units-scrap);
+  s.units+=good; s.scrap+=scrap; s.totalRunTime+=runT;
+  totalUnits+=good;
+  calcOEE(m); updateCard(m.code); updateGlobal();
+
+  const payload={
+    org_id:ORG_ID,plant_id:PLANT_ID,machine_code:m.code,
+    window_start:ws.toISOString(),window_end:now.toISOString(),
+    status:s.running?'run':'stop',
+    good_units_inc:good,scrap_units_inc:scrap,
+  };
+  sendToLIWA('/api/ingest-production',payload,(ok,r)=>{
+    if(ok) addLog('PROD','ok',`${m.code} · +${good} uds · +${scrap} scrap · OK`);
+    else   addLog('ERR','err',`${m.code} · prod ERROR · ${JSON.stringify(r).slice(0,50)}`);
+  });
+}
+
+async function sendEvent(m,start,end,isMicro) {
+  const payload={
+    org_id:ORG_ID,plant_id:PLANT_ID,machine_code:m.code,
+    started_at:start.toISOString(),ended_at:end.toISOString(),
+    source:'auto',status:'pending',
+    notes:`3D Gateway · ${m.protocol}${isMicro?' · microparo':''}`,
+  };
+  sendToLIWA('/api/events/ingest',payload,(ok,r)=>{
+    if(ok){
+      const dur=Math.round((end-start)/1000*simSpeed);
+      const sid=r.details?.[0]?.shift_instance_id?.slice(0,8)?? '—';
+      addLog('EVENT','ok',`${m.code} · ${isMicro?'⚡micro':'paro'} · ${dur}s · shift:${sid}...`);
+    } else {
+      addLog('ERR','err',`${m.code} · evento ERR · ${JSON.stringify(r).slice(0,50)}`);
+    }
+  });
+}
+
+async function sendToLIWA(path,payload,cb) {
+  try {
+    const r=await fetch(BASE_URL+path,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload),
+    });
+    const d=await r.json();
+    cb(r.ok&&d.ok,d);
+  } catch(e){ cb(false,{error:e.message}); }
+}
+
+function calcOEE(m) {
+  const s=simState[m.code];
+  const total=s.totalRunTime+s.totalStopTime;
+  if(total===0) return;
+  const avail=s.totalRunTime/total;
+  const ideal=s.totalRunTime/m.cycle;
+  const perf=ideal>0?Math.min(1,(s.units+s.scrap)/ideal):0.85;
+  const qual=(s.units+s.scrap)>0?s.units/(s.units+s.scrap):1;
+  s.oee=Math.round(avail*perf*qual*100);
+}
+
+// ── UI UPDATES ────────────────────────────────────────
+function buildMachineCards() {
+  const c=document.getElementById('mcards');
+  c.innerHTML='';
+  configMachines.forEach(m => {
+    const pc = PROTO_COLORS[m.protocol] || {hex:'#6b7080'};
+    c.innerHTML+=`
+    <div class="mcard idle" id="mc-${m.code}">
+      <div class="mcard-top">
+        <div>
+          <div class="mcard-code" style="color:${m.color}">${m.code} <span style="color:#4a5568;font-size:8px;font-weight:400">${m.name}</span></div>
+        </div>
+        <div class="mbadge idle" id="mb-${m.code}">IDLE</div>
+      </div>
+      <div class="mcard-metrics">
+        <div class="mm"><span>UDS </span><span id="mu-${m.code}">0</span></div>
+        <div class="mm"><span>PAROS </span><span id="mp-${m.code}">0</span></div>
+        <div class="mm"><span>OEE </span><span id="mo-${m.code}">—</span></div>
+        <div class="mm" style="color:${pc.hex};font-size:8px;">${m.protocol}</div>
+      </div>
+    </div>`;
+  });
+}
+
+function updateCard(code) {
+  const s=simState[code];
+  const mc=document.getElementById(`mc-${code}`);
+  const mb=document.getElementById(`mb-${code}`);
+  if(!mc||!mb) return;
+  const running=simRunning&&s.running;
+  const stopped=simRunning&&!s.running;
+  mc.className=`mcard ${running?'run':stopped?'stp':'idle'}`;
+  mb.className=`mbadge ${running?'run':stopped?'stp':'idle'}`;
+  mb.textContent=running?'RUN':stopped?'STOP':'IDLE';
+  document.getElementById(`mu-${code}`).textContent=s.units;
+  document.getElementById(`mp-${code}`).textContent=s.stops;
+  document.getElementById(`mo-${code}`).textContent=s.oee>0?s.oee+'%':'—';
+}
+
+function updateGlobal() {
+  const oees=configMachines.map(m=>simState[m.code]?.oee||0).filter(o=>o>0);
+  if(oees.length){
+    const avg=Math.round(oees.reduce((a,b)=>a+b)/oees.length);
+    const el=document.getElementById('s-oee');
+    el.textContent=avg+'%';
+    el.className=`fstat-val ${avg>=75?'g':avg>=50?'a':'r'}`;
+  }
+  document.getElementById('s-units').textContent=totalUnits.toLocaleString();
+  document.getElementById('s-stops').textContent=totalStops;
+  document.getElementById('s-micro').textContent=totalMicro;
+  const h=Math.floor(simSecs/3600);
+  const mm=Math.floor((simSecs%3600)/60);
+  document.getElementById('s-time').textContent=(h?h+'h ':'')+String(mm).padStart(2,'0')+'m';
+}
+
+function addLog(tag,type,msg) {
+  const body=document.getElementById('log-body');
+  const t=new Date().toTimeString().slice(0,8);
+  const el=document.createElement('div');
+  el.className=`flog-entry ${type}`;
+  el.innerHTML=`<span class="flog-t">${t}</span><span class="flog-tag ${tag}">${tag}</span><span class="flog-msg">${msg}</span>`;
+  body.prepend(el);
+  while(body.children.length>80) body.removeChild(body.lastChild);
+}
+function clearLog(){ document.getElementById('log-body').innerHTML=''; }
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+loadPreset('food');
+</script>
+</body>
+</html>
