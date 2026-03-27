@@ -135,8 +135,8 @@ export async function POST(req: NextRequest) {
         ts_end: endIso,
         good_units: good_units_inc,
         scrap_units: scrap_units_inc,
-        planned_time_s: durSec,
-        run_time_s: status.toLowerCase() === "run" ? durSec : 0,
+        planned_time_s: Math.round(durSec),
+        run_time_s: status.toLowerCase() === "run" ? Math.round(durSec) : 0,
         ideal_cycle_s: machine.ideal_cycle_s,
         notes: "ingested from Gateway",
       };
