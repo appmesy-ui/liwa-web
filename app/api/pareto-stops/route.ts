@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
           ended_at,
           duration_s,
           is_planned,
-          classified_ui,
+          status,
           lvl2_name,
           lvl3_name,
           line_id,
@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
 
     if (source === "live" || source === "both") {
       let q = makeQuery("v_events_ui");
-      if (onlyClassified) q = q.eq("classified_ui", true);
+      if (onlyClassified) q = q.eq("status", "classified");
       if (planned === "only") q = q.eq("is_planned", true);
       if (planned === "exclude") q = q.eq("is_planned", false);
       if (scope === "line" && lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
 
     if (source === "seed" || source === "both") {
       let q = makeQuery("pareto_seed"); // opcional/semillas
-      if (onlyClassified) q = q.eq("classified_ui", true);
+      if (onlyClassified) q = q.eq("status", "classified");
       if (planned === "only") q = q.eq("is_planned", true);
       if (planned === "exclude") q = q.eq("is_planned", false);
       if (scope === "line" && lineIdForFilter) q = q.eq("line_id", lineIdForFilter);
@@ -213,7 +213,7 @@ export async function GET(req: NextRequest) {
       const pct = baseValue > 0 ? (value / baseValue) * 100 : 0;
       acc += pct;
 
-      // Evitar “0 min” en barras reales: mínimo 1 si hubo solape
+      // Evitar "0 min" en barras reales: mínimo 1 si hubo solape
       const minutesRounded = Math.max(1, Math.round(r.minutes));
 
       return {
@@ -248,4 +248,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
-
