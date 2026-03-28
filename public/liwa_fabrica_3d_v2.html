@@ -428,10 +428,10 @@ const COLORS_3D = [
 
 const PRESETS = {
   food: [
-    {code:'M1', name:'Dosificador',   protocol:'HTTP',   cycle:0.5,  stopProb:12, color:'#2dd4bf'},
-    {code:'M2', name:'Amasadora',     protocol:'MQTT',   cycle:0.4,  stopProb:10, color:'#ffb300'},
-    {code:'M5', name:'Slitter/Corte', protocol:'OPC-UA', cycle:0.5,  stopProb:15, color:'#4da6ff'},
-    {code:'M7', name:'Enfriador',     protocol:'Modbus', cycle:0.43, stopProb:8,  color:'#a78bfa'},
+    {code:'M1', name:'Dosificador',   protocol:'HTTP',   cycle:0.5,  stopProb:3, color:'#2dd4bf'},
+    {code:'M2', name:'Amasadora',     protocol:'MQTT',   cycle:0.4,  stopProb:2, color:'#ffb300'},
+    {code:'M5', name:'Slitter/Corte', protocol:'OPC-UA', cycle:0.5,  stopProb:4, color:'#4da6ff'},
+    {code:'M7', name:'Enfriador',     protocol:'Modbus', cycle:0.43, stopProb:2, color:'#a78bfa'},
   ],
   packaging: [
     {code:'P1', name:'Formadora',     protocol:'MQTT',   cycle:0.3,  stopProb:14, color:'#00d4a0'},
@@ -903,6 +903,16 @@ let simSecs    = 0;
 let totalUnits=0, totalStops=0, totalMicro=0;
 let stopTimers={}, prodTimers={}, globalClockTimer;
 
+// Reloj simulado — avanza según simSpeed
+let simClockMs = 0;
+
+function getSimNow() {
+  // Base: hoy a las 06:00 (inicio turno mañana)
+  const base = new Date();
+  base.setHours(6, 0, 0, 0);
+  return new Date(base.getTime() + simClockMs);
+}
+
 function initSimState() {
   simState={};
   configMachines.forEach(m => {
@@ -912,7 +922,7 @@ function initSimState() {
       stopStart:null,lastProdSend:null,oee:0,
     };
   });
-  totalUnits=totalStops=totalMicro=simSecs=0;
+  totalUnits=totalStops=totalMicro=simSecs=simClockMs=0;
 }
 
 function startSim() {
@@ -933,7 +943,7 @@ function startSim() {
     scheduleProd(m);
   });
 
-  globalClockTimer=setInterval(()=>{ simSecs+=simSpeed; updateGlobal(); },1000);
+  globalClockTimer=setInterval(()=>{ simSecs+=simSpeed; simClockMs+=1000*simSpeed; updateGlobal(); },1000);
 }
 
 function stopSim() {
@@ -959,7 +969,7 @@ function scheduleStop(m) {
   const delay=(5+Math.random()*12)*1000;
   stopTimers[m.code]=setTimeout(()=>{
     if(!simRunning) return;
-    if(simState[m.code].running && Math.random()<(m.stopProb/100)*1.5) triggerStop(m);
+    if(simState[m.code].running && Math.random()<(m.stopProb/100)) triggerStop(m);
     else scheduleStop(m);
   }, delay);
 }
@@ -969,10 +979,10 @@ function triggerStop(m) {
   if(!s.running) return;
   const roll=Math.random();
   let simDur;
-  if(roll<0.22)      simDur=1+Math.random()*(microThreshold-1);
-  else if(roll<0.65) simDur=30+Math.random()*270;
-  else if(roll<0.90) simDur=300+Math.random()*600;
-  else               simDur=900+Math.random()*1800;
+  if(roll<0.10)      simDur=1+Math.random()*(microThreshold-1);   // 10% microparos
+  else if(roll<0.55) simDur=60+Math.random()*240;                  // 45% paros cortos 1-5min
+  else if(roll<0.85) simDur=300+Math.random()*900;                 // 30% paros medios 5-20min
+  else               simDur=1200+Math.random()*1800;               // 15% paros largos 20-50min
 
   const realMs=(simDur/simSpeed)*1000;
   const isMicro=simDur<microThreshold;
@@ -1011,18 +1021,25 @@ function flushProd(m) {
   s.lastProdSend=now;
   const realSec=(now-ws)/1000;
   const simSec=realSec*simSpeed;
-  const runFrac=0.78+Math.random()*0.17;
+  const runFrac=0.88+Math.random()*0.10;
   const runT=simSec*runFrac;
-  const units=Math.max(0,Math.floor(runT/m.cycle)+Math.floor(Math.random()*3-1));
-  const scrap=Math.floor(units*(0.01+Math.random()*0.04));
+  // Variación de velocidad: ±15% del ciclo ideal → afecta al rendimiento
+  const speedFactor = 0.85 + Math.random()*0.30;
+  const effectiveCycle = m.cycle * speedFactor;
+  const units=Math.max(0,Math.floor(runT/effectiveCycle)+Math.floor(Math.random()*2-1));
+  const scrap=Math.floor(units*(0.005+Math.random()*0.025));
   const good=Math.max(0,units-scrap);
   s.units+=good; s.scrap+=scrap; s.totalRunTime+=runT;
   totalUnits+=good;
   calcOEE(m); updateCard(m.code); updateGlobal();
 
+  // Timestamps simulados — avanzan con simSpeed
+  const simNow = getSimNow();
+  const simWs  = new Date(simNow.getTime() - simSec*1000);
+
   const payload={
     org_id:ORG_ID,plant_id:PLANT_ID,machine_code:m.code,
-    window_start:ws.toISOString(),window_end:now.toISOString(),
+    window_start:simWs.toISOString(),window_end:simNow.toISOString(),
     status:s.running?'run':'stop',
     good_units_inc:good,scrap_units_inc:scrap,
   };
@@ -1033,9 +1050,13 @@ function flushProd(m) {
 }
 
 async function sendEvent(m,start,end,isMicro) {
+  // Convertir timestamps reales a simulados
+  const realDurMs = end - start;
+  const simEnd = getSimNow();
+  const simStart = new Date(simEnd.getTime() - realDurMs*simSpeed);
   const payload={
     org_id:ORG_ID,plant_id:PLANT_ID,machine_code:m.code,
-    started_at:start.toISOString(),ended_at:end.toISOString(),
+    started_at:simStart.toISOString(),ended_at:simEnd.toISOString(),
     source:'auto',status:'pending',
     notes:`3D Gateway · ${m.protocol}${isMicro?' · microparo':''}`,
   };
