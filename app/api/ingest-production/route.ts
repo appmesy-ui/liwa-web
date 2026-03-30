@@ -120,10 +120,70 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      shiftId =
-        shiftsPlant && shiftsPlant.length > 0
-          ? (shiftsPlant[0].shift_instance_id as string)
-          : null;
+      const shiftRow =
+        shiftsPlant && shiftsPlant.length > 0 ? shiftsPlant[0] : null;
+      shiftId = shiftRow ? (shiftRow.shift_instance_id as string) : null;
+
+      // ── Gap fill (nivel línea) ────────────────────────────────────────────
+      // Si ninguna máquina de la línea ha producido desde el inicio del turno
+      // creamos UN SOLO evento pendiente a nivel de línea (sin machine_id)
+      // para que el operario clasifique ese tiempo desde la app.
+      if (shiftId && shiftRow && machine.line_id) {
+        const shiftStart = new Date(shiftRow.starts_at as string);
+        const gapSec = (start.getTime() - shiftStart.getTime()) / 1000;
+
+        if (gapSec > 60) {
+          // ¿Ya hay producción previa en esta LÍNEA en este turno?
+          const { data: priorProd } = await supabase
+            .from("production")
+            .select("id")
+            .eq("line_id", machine.line_id)
+            .eq("shift_instance_id", shiftId)
+            .lt("ts_start", startIso)
+            .limit(1);
+
+          const hasNoPriorProduction = !priorProd || priorProd.length === 0;
+
+          if (hasNoPriorProduction) {
+            // ¿Ya existe un gap_fill para esta LÍNEA en este turno?
+            const { data: existingGap } = await supabase
+              .from("events")
+              .select("id")
+              .eq("line_id", machine.line_id)
+              .eq("shift_instance_id", shiftId)
+              .eq("source", "gap_fill")
+              .limit(1);
+
+            const noGapYet = !existingGap || existingGap.length === 0;
+
+            if (noGapYet) {
+              const gapEvent: any = {
+                org_id,
+                plant_id,
+                shift_instance_id: shiftId,
+                line_id: machine.line_id,
+                machine_id: null,             // evento de línea, sin máquina
+                started_at: shiftRow.starts_at,
+                ended_at: startIso,
+                is_planned: false,
+                status: "pending",
+                source: "gap_fill",
+                notes: "Sin producción desde inicio de turno",
+              };
+              const { error: gapErr } = await supabase
+                .from("events")
+                .insert(gapEvent);
+              if (gapErr) {
+                console.warn(
+                  "[ingest-production] gap_fill insert failed:",
+                  gapErr.message
+                );
+              }
+            }
+          }
+        }
+      }
+      // ── Fin gap fill ──────────────────────────────────────────────────────
 
       const row: any = {
         org_id,
