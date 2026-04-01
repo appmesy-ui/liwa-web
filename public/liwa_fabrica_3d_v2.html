@@ -539,7 +539,7 @@ function resetConfig() {
 // ═══════════════════════════════════════════════════════
 // LAUNCH
 // ═══════════════════════════════════════════════════════
-function launchFactory() {
+async function launchFactory() {
   if(configMachines.length === 0) {
     alert('Añade al menos una máquina antes de lanzar.');
     return;
@@ -547,6 +547,18 @@ function launchFactory() {
   microThreshold = parseInt(document.getElementById('g-micro').value) || 5;
   simSpeed = parseInt(document.getElementById('g-speed').value) || 5;
   document.getElementById('fspd').value = simSpeed;
+
+  // Consultar turno activo antes de lanzar
+  simShiftStart = null;
+  try {
+    const r = await fetch(`${BASE_URL}/api/shifts/active?org_id=${ORG_ID}&plant_id=${PLANT_ID}`);
+    const d = await r.json();
+    if (d.ok && d.shift && d.shift.starts_at) {
+      simShiftStart = d.shift.starts_at;
+    }
+  } catch(e) {
+    // Si falla, se usará el fallback 06:00
+  }
 
   document.getElementById('config-screen').style.display = 'none';
   document.getElementById('factory-ui').style.display = 'block';
@@ -556,7 +568,12 @@ function launchFactory() {
   buildFactory();
   buildMachineCards();
   initSimState();
+
+  const shiftInfo = simShiftStart
+    ? `Turno activo · desde ${new Date(simShiftStart).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}`
+    : 'Sin turno activo · base 06:00';
   addLog('INFO','inf','Fábrica configurada · '+configMachines.length+' máquinas · umbral micro: '+microThreshold+'s');
+  addLog('INFO','inf', shiftInfo);
   addLog('INFO','inf','Arrastra para rotar · scroll para zoom');
 }
 
@@ -906,10 +923,17 @@ let stopTimers={}, prodTimers={}, globalClockTimer;
 // Reloj simulado — avanza según simSpeed
 let simClockMs = 0;
 
+// Inicio de turno activo (se obtiene del endpoint /api/shifts/active al lanzar)
+let simShiftStart = null;
+
 function getSimNow() {
-  // Base: hoy a las 06:00 (inicio turno mañana)
-  const base = new Date();
-  base.setHours(6, 0, 0, 0);
+  let base;
+  if (simShiftStart) {
+    base = new Date(simShiftStart);
+  } else {
+    base = new Date();
+    base.setHours(6, 0, 0, 0);
+  }
   return new Date(base.getTime() + simClockMs);
 }
 
