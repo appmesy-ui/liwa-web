@@ -25,7 +25,6 @@ type KpisApiResp =
   | { ok: false; error: string }
   | any;
 
-// /api/pending row (según tu PendingRow)
 type PendingRow = {
   id: string;
   line_code: string | null;
@@ -38,11 +37,6 @@ type PendingRow = {
   lvl3: string | null;
   classified: boolean | null;
 };
-
-type PendingApiResp =
-  | { ok: true; rows: PendingRow[] }
-  | { ok: false; error: string }
-  | any;
 
 // ==== Utilidades ====
 function avg(arr: (number | null | undefined)[]) {
@@ -173,36 +167,33 @@ export default function LiwaAiPage() {
   const [pendingErr, setPendingErr] = useState<string | null>(null);
 
   useEffect(() => {
-    let url = "/api/pending";
-    // Si tu /api/pending soporta from/to, descomenta:
-    if (from) url += `${url.includes("?") ? "&" : "?"}from=${encodeURIComponent(from)}`;
-    if (to) url += `${url.includes("?") ? "&" : "?"}to=${encodeURIComponent(to)}`;
+    const params = new URLSearchParams({ state: “pending”, limit: “500” });
+    if (from) params.set(“from”, from);
+    if (to) params.set(“to”, to);
+    const url = `/api/downtimes?${params.toString()}`;
 
     (async () => {
       try {
         setPendingErr(null);
         setPendingRows(null);
-        const r = await fetch(url, { cache: "no-store" });
-        const data: PendingApiResp = await r.json();
-        if (!data.ok) throw new Error(data.error || "Error en /api/pending");
-        // Si tu /api/pending no filtra por rango todavía, filtramos aquí por started_at/ended_at:
-        const rows = Array.isArray(data.rows) ? data.rows : [];
-        const ranged = (from && to)
-          ? rows.filter((ev) => {
-              const s = ev.started_at ? Date.parse(ev.started_at) : NaN;
-              const e = ev.ended_at ? Date.parse(ev.ended_at) : NaN;
-              const f = Date.parse(from);
-              const t = Date.parse(to);
-              // Conservador: si no hay fechas válidas, incluimos; si hay, chequeamos solape con el rango
-              if (!isFinite(s) && !isFinite(e)) return true;
-              if (isFinite(s) && s >= f && s <= t) return true;
-              if (isFinite(e) && e >= f && e <= t) return true;
-              return false;
-            })
-          : rows;
-        setPendingRows(ranged);
+        const r = await fetch(url, { cache: “no-store” });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || “Error en /api/downtimes”);
+        const rows: PendingRow[] = (Array.isArray(data.rows) ? data.rows : []).map((ev: any) => ({
+          id: ev.id,
+          line_code: ev.line_code ?? null,
+          machine_code: ev.machine_code ?? null,
+          started_at: ev.started_at ?? null,
+          ended_at: ev.ended_at ?? null,
+          duration_min: ev.duration_s != null ? Math.round(Number(ev.duration_s) / 60) : null,
+          lvl1: null,
+          lvl2: ev.n2_name ?? null,
+          lvl3: ev.n3_name ?? null,
+          classified: ev.state === “classified”,
+        }));
+        setPendingRows(rows);
       } catch (e: any) {
-        setPendingErr(e.message || "Fallo al cargar pendientes");
+        setPendingErr(e.message || “Fallo al cargar pendientes”);
       }
     })();
   }, [from, to]);
