@@ -162,23 +162,23 @@ export default function LiwaAiPage() {
     })();
   }, [from, to]);
 
-  // 3) Paros pendientes (usaremos esto como “top paros” del rango)
+  // 3) Paros pendientes (usaremos esto como "top paros" del rango)
   const [pendingRows, setPendingRows] = useState<PendingRow[] | null>(null);
   const [pendingErr, setPendingErr] = useState<string | null>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams({ state: “pending”, limit: “500” });
-    if (from) params.set(“from”, from);
-    if (to) params.set(“to”, to);
+    const params = new URLSearchParams({ state: "pending", limit: "500" });
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
     const url = `/api/downtimes?${params.toString()}`;
 
     (async () => {
       try {
         setPendingErr(null);
         setPendingRows(null);
-        const r = await fetch(url, { cache: “no-store” });
+        const r = await fetch(url, { cache: "no-store" });
         const data = await r.json();
-        if (!data.ok) throw new Error(data.error || “Error en /api/downtimes”);
+        if (!data.ok) throw new Error(data.error || "Error en /api/downtimes");
         const rows: PendingRow[] = (Array.isArray(data.rows) ? data.rows : []).map((ev: any) => ({
           id: ev.id,
           line_code: ev.line_code ?? null,
@@ -189,11 +189,11 @@ export default function LiwaAiPage() {
           lvl1: null,
           lvl2: ev.n2_name ?? null,
           lvl3: ev.n3_name ?? null,
-          classified: ev.state === “classified”,
+          classified: ev.state === "classified",
         }));
         setPendingRows(rows);
       } catch (e: any) {
-        setPendingErr(e.message || “Fallo al cargar pendientes”);
+        setPendingErr(e.message || "Fallo al cargar pendientes");
       }
     })();
   }, [from, to]);
@@ -262,7 +262,7 @@ export default function LiwaAiPage() {
         summary,
         per_line,
       },
-      stops_pending_top: topStops, // <<— aquí viajan los “paros top” (pendientes)
+      stops_pending_top: topStops, // <<— aquí viajan los "paros top" (pendientes)
       notes: [
         "Paros top calculados sobre pendientes; cuando haya endpoint de históricos clasificados, lo cambiaremos.",
       ],
@@ -406,7 +406,7 @@ export default function LiwaAiPage() {
             }
           />
           <div className="text-xs text-slate-400">
-            * “stops_pending_top” = top paros pendientes por minutos y por ocurrencias (rango seleccionado).
+            * "stops_pending_top" = top paros pendientes por minutos y por ocurrencias (rango seleccionado).
           </div>
         </div>
       </div>
