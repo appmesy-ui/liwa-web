@@ -396,13 +396,32 @@ export default function DashboardPage() {
     setHydrated(true);
   }, [range]);
 
-  // usuario/org
+  // usuario/org + detección onboarding
   useEffect(() => {
     if (!hydrated) return;
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
         setUserEmail(data.session?.user?.email ?? null);
+
+        // Si no hay líneas configuradas → onboarding
+        const userId = data.session?.user?.id;
+        if (userId) {
+          const sbAny = supabase as any;
+          const { data: memberships } = await sbAny
+            .schema("liwa").from("org_members")
+            .select("org_id").eq("user_id", userId).limit(1);
+          const orgId = memberships?.[0]?.org_id;
+          if (orgId) {
+            const { data: lines } = await sbAny
+              .schema("liwa").from("lines")
+              .select("id").eq("org_id", orgId).limit(1);
+            if (!lines || lines.length === 0) {
+              window.location.replace("/onboarding");
+              return;
+            }
+          }
+        }
       } catch {
         setUserEmail(null);
       }
