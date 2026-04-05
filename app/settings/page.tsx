@@ -2696,13 +2696,17 @@ function TaxonomyTab({ parentClient }: { parentClient: ReturnType<typeof createC
   async function load() {
     setLoading(true);
     setErr(null);
-    const { data: me } = await sb.auth.getUser();
-    if (!me?.user) { setErr("Sin sesion"); setLoading(false); return; }
+    const { data: userRes } = await sb.auth.getUser();
+    if (!userRes?.user) { setErr("Sin sesion"); setLoading(false); return; }
 
-    // Obtener org_id del usuario via /api/me
-    const meRes = await fetch("/api/me");
-    const meJson = await meRes.json();
-    const oid = meJson?.org?.id ?? null;
+    // Obtener org_id igual que las otras tabs: via org_members
+    const { data: memberships } = await sb
+      .schema("liwa")
+      .from("org_members")
+      .select("org_id")
+      .eq("user_id", userRes.user.id)
+      .limit(1);
+    const oid = memberships?.[0]?.org_id ?? null;
     setOrgId(oid);
     if (!oid) { setErr("No se pudo obtener la organización"); setLoading(false); return; }
 
