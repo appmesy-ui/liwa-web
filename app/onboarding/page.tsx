@@ -172,18 +172,24 @@ export default function OnboardingPage() {
     if (!orgId) { setErr("No se encontró organización"); return; }
     setSaving(true); setErr(null);
 
-    // Parsear hora inicio → minutos desde medianoche
-    const [hh, mm] = shiftStart.split(":").map(Number);
-    const startMin = hh * 60 + mm;
-    const dur = Number(shiftDuration) || 480;
-    const overnight = startMin + dur > 24 * 60;
+    // Calcular starts_at / ends_at igual que Settings
+    const [hStr, mStr] = shiftStart.split(":");
+    const h = Number(hStr); const m = Number(mStr);
+    const dur = Math.min(1439, Math.max(1, Number(shiftDuration) || 480));
+    const startMin = h * 60 + m;
+    let endMin = startMin + dur;
+    if (endMin >= 24 * 60) endMin -= 24 * 60;
+    const endH = Math.floor(endMin / 60); const endM = endMin % 60;
+    const starts_at = `${h.toString().padStart(2,"0")}:${m.toString().padStart(2,"0")}:00`;
+    const ends_at   = `${endH.toString().padStart(2,"0")}:${endM.toString().padStart(2,"0")}:00`;
+    const overnight = endMin <= startMin;
 
     const { error } = await sb.schema("liwa").from("shift_templates").insert({
       org_id: orgId,
       code: shiftCode.trim().toUpperCase(),
       name: shiftName.trim(),
-      start_minute: startMin,
-      duration_min: dur,
+      starts_at,
+      ends_at,
       overnight,
       is_active: true,
     });
