@@ -54,6 +54,7 @@ const TABS = [
   { key: "machines", label: "Máquinas" },
   { key: "shifts", label: "Turnos" },
   { key: "calendar", label: "Calendario" },
+  { key: "taxonomy", label: "Taxonomía" },
 ];
 
 /* ==== Utils ==== */
@@ -203,6 +204,7 @@ export default function SettingsPage() {
         {activeTab === "calendar" && (
           <CalendarTab parentClient={supabase} />
         )}
+        {activeTab === "taxonomy" && <TaxonomyTab parentClient={supabase} />}
       </section>
     </div>
   );
@@ -2661,3 +2663,282 @@ function Actions({
   );
 }
 
+
+/* =================== TAXONOMÍA =================== */
+type TaxNode = {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  is_active: boolean;
+  requires_detail: boolean;
+  org_id: string;
+  plant_id: string | null;
+};
+
+function TaxonomyTab({ parentClient }: { parentClient: ReturnType<typeof createClientComponentClient> }) {
+  const sb = parentClient as any;
+  const [nodes, setNodes] = useState<TaxNode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
+
+  // Modal state
+  const [modal, setModal] = useState<null | "add">(null);
+  const [addParentId, setAddParentId] = useState<string | null>(null); // null = N1
+  const [addName, setAddName] = useState("");
+  const [addRequiresDetail, setAddRequiresDetail] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Inline rename
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameName, setRenameName] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    const { data: me } = await sb.auth.getUser();
+    if (!me?.user) { setErr("Sin sesion"); setLoading(false); return; }
+
+    // Obtener org_id del usuario via /api/me
+    const meRes = await fetch("/api/me");
+    const meJson = await meRes.json();
+    const oid = meJson?.org?.id ?? null;
+    setOrgId(oid);
+    if (!oid) { setErr("No se pudo obtener la organización"); setLoading(false); return; }
+
+    const { data, error } = await sb
+      .schema("liwa")
+      .from("taxonomy_nodes")
+      .select("id, parent_id, name, is_active, requires_detail, org_id, plant_id")
+      .eq("org_id", oid)
+      .order("name", { ascending: true });
+
+    if (error) setErr(error.message);
+    else setNodes((data ?? []) as TaxNode[]);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  // Árbol: N1 (sin parent), N2 (hijos de N1), N3 (hijos de N2)
+  const n1 = nodes.filter(n => n.parent_id === null);
+  function childrenOf(id: string) { return nodes.filter(n => n.parent_id === id); }
+
+  async function toggleActive(node: TaxNode) {
+    const { error } = await sb.schema("liwa").from("taxonomy_nodes")
+      .update({ is_active: !node.is_active }).eq("id", node.id);
+    if (error) { setErr(error.message); return; }
+    setNodes(prev => prev.map(n => n.id === node.id ? { ...n, is_active: !n.is_active } : n));
+  }
+
+  async function saveRename() {
+    if (!renameId || !renameName.trim()) return;
+    setSaving(true);
+    const { error } = await sb.schema("liwa").from("taxonomy_nodes")
+      .update({ name: renameName.trim() }).eq("id", renameId);
+    setSaving(false);
+    if (error) { setErr(error.message); return; }
+    setNodes(prev => prev.map(n => n.id === renameId ? { ...n, name: renameName.trim() } : n));
+    setRenameId(null);
+    setRenameName("");
+  }
+
+  async function saveAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addName.trim() || !orgId) return;
+    setSaving(true);
+    const { data, error } = await sb.schema("liwa").from("taxonomy_nodes")
+      .insert({
+        org_id: orgId,
+        parent_id: addParentId,
+        name: addName.trim(),
+        requires_detail: addRequiresDetail,
+        is_active: true,
+      })
+      .select()
+      .single();
+    setSaving(false);
+    if (error) { setErr(error.message); return; }
+    setNodes(prev => [...prev, data as TaxNode]);
+    setModal(null);
+    setAddName("");
+    setAddRequiresDetail(false);
+    setAddParentId(null);
+  }
+
+  function openAddModal(parentId: string | null) {
+    setAddParentId(parentId);
+    setAddName("");
+    setAddRequiresDetail(false);
+    setModal("add");
+  }
+
+  function levelLabel(parentId: string | null) {
+    if (!parentId) return "N1 (raíz)";
+    const parent = nodes.find(n => n.id === parentId);
+    if (!parent) return "N2";
+    return parent.parent_id ? "N3" : "N2";
+  }
+
+  function renderNode(node: TaxNode, depth: number) {
+    const children = childrenOf(node.id);
+    const isRenaming = renameId === node.id;
+    const canAddChild = depth < 2; // N1→N2→N3 máximo 3 niveles
+    const indent = depth * 20;
+
+    return (
+      <div key={node.id}>
+        <div
+          className={[
+            "flex items-center gap-2 py-1.5 px-3 rounded-md group",
+            node.is_active ? "" : "opacity-40",
+            depth === 0 ? "font-medium" : "text-sm text-slate-300",
+          ].join(" ")}
+          style={{ paddingLeft: `${12 + indent}px` }}
+        >
+          {/* Icono nivel */}
+          <span className="text-slate-500 text-xs w-4 shrink-0">
+            {depth === 0 ? "N1" : depth === 1 ? "N2" : "N3"}
+          </span>
+
+          {/* Nombre o input de rename */}
+          {isRenaming ? (
+            <input
+              autoFocus
+              className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-sm"
+              value={renameName}
+              onChange={e => setRenameName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenameId(null); }}
+            />
+          ) : (
+            <span className="flex-1">{node.name}</span>
+          )}
+
+          {/* Acciones */}
+          <span className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {isRenaming ? (
+              <>
+                <button
+                  className="text-sky-400 text-xs px-2 py-0.5 rounded hover:bg-slate-800"
+                  onClick={saveRename} disabled={saving}
+                >
+                  Guardar
+                </button>
+                <button
+                  className="text-slate-400 text-xs px-2 py-0.5 rounded hover:bg-slate-800"
+                  onClick={() => setRenameId(null)}
+                >
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                {canAddChild && (
+                  <button
+                    title="Añadir hijo"
+                    className="text-xs px-1.5 py-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-sky-400"
+                    onClick={() => openAddModal(node.id)}
+                  >
+                    ＋
+                  </button>
+                )}
+                <button
+                  title="Renombrar"
+                  className="text-xs px-1.5 py-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-yellow-400"
+                  onClick={() => { setRenameId(node.id); setRenameName(node.name); }}
+                >
+                  ✏
+                </button>
+                <button
+                  title={node.is_active ? "Desactivar" : "Activar"}
+                  className={`text-xs px-1.5 py-0.5 rounded hover:bg-slate-800 ${node.is_active ? "text-slate-400 hover:text-red-400" : "text-slate-500 hover:text-green-400"}`}
+                  onClick={() => toggleActive(node)}
+                >
+                  {node.is_active ? "⏸" : "▶"}
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+
+        {/* Hijos */}
+        {children.map(child => renderNode(child, depth + 1))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold">Taxonomía de paros</h2>
+          <p className="text-sm text-slate-400 mt-0.5">
+            Árbol N1 → N2 → N3 que usan los operarios para clasificar paros.
+          </p>
+        </div>
+        <button
+          className="flex items-center gap-1 rounded-md bg-sky-600 px-3 py-2 text-sm text-white hover:bg-sky-500"
+          onClick={() => openAddModal(null)}
+        >
+          + Añadir N1
+        </button>
+      </div>
+
+      {err && (
+        <div className="mb-3 rounded-md bg-red-950 border border-red-800 px-3 py-2 text-sm text-red-300">
+          {err}
+        </div>
+      )}
+
+      {loading ? (
+        <SkeletonTable />
+      ) : n1.length === 0 ? (
+        <EmptyState hint="Aún no hay categorías. Añade una N1 para empezar." />
+      ) : (
+        <div className="rounded-xl border border-slate-800 divide-y divide-slate-800/60 bg-slate-950/40">
+          {n1.map(node => renderNode(node, 0))}
+        </div>
+      )}
+
+      {/* Botón mostrar/ocultar inactivos */}
+      {!loading && nodes.some(n => !n.is_active) && (
+        <p className="mt-2 text-xs text-slate-500">
+          Los nodos en gris están desactivados y no aparecen al clasificar.
+        </p>
+      )}
+
+      {/* Modal añadir */}
+      {modal === "add" && (
+        <Modal
+          title={`Nuevo nodo ${levelLabel(addParentId)}`}
+          onClose={() => setModal(null)}
+        >
+          <form onSubmit={saveAdd} className="grid gap-3">
+            <Field label="Nombre">
+              <input
+                autoFocus
+                required
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+                placeholder={addParentId ? "ej: Fallo de rodamiento" : "ej: Mecánico"}
+                value={addName}
+                onChange={e => setAddName(e.target.value)}
+              />
+            </Field>
+            {addParentId && (
+              <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={addRequiresDetail}
+                  onChange={e => setAddRequiresDetail(e.target.checked)}
+                  className="rounded"
+                />
+                Requiere detalle adicional
+              </label>
+            )}
+            <Actions onCancel={() => setModal(null)} saving={saving} />
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
