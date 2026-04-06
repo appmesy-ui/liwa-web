@@ -136,7 +136,8 @@ export default function LiwaAiPage() {
   /* ── Datos ── */
   const [kpisRows, setKpisRows] = useState<RowUI[] | null>(null);
   const [pendingRows, setPendingRows] = useState<PendingRow[] | null>(null);
-  const dataReady = kpisRows !== null;
+  const dataReady = kpisRows !== null && pendingRows !== null;
+  const hasData = kpisRows !== null && kpisRows.length > 0;
 
   useEffect(() => {
     let url = "/api/kpis?step=all";
@@ -186,7 +187,14 @@ export default function LiwaAiPage() {
       const tops = buildTopStops(filtered, 5);
       topStops = { byMinutes: tops.byMinutes, byCount: tops.byCount };
     }
-    return { source: "liwa-db", time_range: from && to ? { from, to } : undefined, kpis: { summary, per_line }, stops_pending_top: topStops };
+    const noData = per_line.length === 0;
+    return {
+      source: "liwa-db",
+      time_range: from && to ? { from, to } : undefined,
+      no_production_data: noData,
+      kpis: noData ? null : { summary, per_line },
+      stops_pending_top: topStops ?? null,
+    };
   }, [kpisRows, pendingRows, from, to, linesParam]);
 
   /* ── KPIs agregados para mostrar en chips ── */
@@ -263,6 +271,14 @@ export default function LiwaAiPage() {
           </div>
         )}
       </div>
+
+      {/* ── Aviso sin datos ── */}
+      {dataReady && !hasData && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-950/40 border border-amber-800/50 text-xs text-amber-300">
+          <span>⚠</span>
+          <span>No hay datos de producción para este rango. Verifica que el gateway esté activo o cambia el período.</span>
+        </div>
+      )}
 
       {/* ── Chat ── */}
       <div
