@@ -127,7 +127,14 @@ export default function OnboardingPage() {
     }).select().single();
 
     setSaving(false);
-    if (error) { setErr(error.message); return; }
+    if (error) {
+      if (error.code === "23505") {
+        setErr(`Ya existe una línea con el código "${lineCode.trim().toUpperCase()}". Usa un código diferente.`);
+      } else {
+        setErr(error.message);
+      }
+      return;
+    }
     setLineId(data.id);
     setStep(1);
   }
@@ -195,7 +202,14 @@ export default function OnboardingPage() {
     });
 
     setSaving(false);
-    if (error) { setErr(error.message); return; }
+    if (error) {
+      if (error.code === "23505") {
+        setErr(`Ya existe un turno con el código "${shiftCode.trim().toUpperCase()}". Usa un código diferente.`);
+      } else {
+        setErr(error.message);
+      }
+      return;
+    }
     setStep(3);
   }
 
