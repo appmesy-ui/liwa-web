@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState, ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 /* =========================
@@ -333,6 +334,7 @@ function OeeHero({
 ========================= */
 export default function DashboardPage() {
   const supabase = createClientComponentClient();
+  const router = useRouter();
 
   const [hydrated, setHydrated] = useState(false);
   const [range, setRange] = useState<"24h" | "7d" | "30d">("24h");
@@ -384,16 +386,20 @@ export default function DashboardPage() {
     );
   }, [rows, selectedLines]);
 
-  // rango
+  // rango → actualiza estado Y URL (para que el botón IA lo pueda leer)
   useEffect(() => {
     const now = new Date();
     const from = new Date(now);
     if (range === "24h") from.setDate(now.getDate() - 1);
     if (range === "7d") from.setDate(now.getDate() - 7);
     if (range === "30d") from.setDate(now.getDate() - 30);
-    setToISO(now.toISOString());
-    setFromISO(from.toISOString());
+    const toStr = now.toISOString();
+    const fromStr = from.toISOString();
+    setToISO(toStr);
+    setFromISO(fromStr);
     setHydrated(true);
+    // Reflejar rango en la URL sin recargar la página
+    router.replace(`/dashboard?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}`, { scroll: false });
   }, [range]);
 
   // usuario/org + detección onboarding
