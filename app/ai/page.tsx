@@ -136,7 +136,8 @@ export default function LiwaAiPage() {
   /* ── Datos ── */
   const [kpisRows, setKpisRows] = useState<RowUI[] | null>(null);
   const [pendingRows, setPendingRows] = useState<PendingRow[] | null>(null);
-  const dataReady = kpisRows !== null && pendingRows !== null;
+  const [paretoRows, setParetoRows] = useState<any[] | null>(null);
+  const dataReady = kpisRows !== null && pendingRows !== null && paretoRows !== null;
   const hasData = kpisRows !== null && kpisRows.length > 0;
 
   useEffect(() => {
@@ -165,6 +166,17 @@ export default function LiwaAiPage() {
       .catch(() => setPendingRows([]));
   }, [from, to]);
 
+  // Paros clasificados via pareto-stops
+  useEffect(() => {
+    const params = new URLSearchParams({ limit: "20" });
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    fetch(`/api/pareto-stops?${params}`, { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => setParetoRows(d.ok ? (d.rows || d.data || []) : []))
+      .catch(() => setParetoRows([]));
+  }, [from, to]);
+
   /* ── Contexto para la IA (invisible al usuario) ── */
   const contextObj = useMemo(() => {
     if (!kpisRows) return undefined;
@@ -188,12 +200,24 @@ export default function LiwaAiPage() {
       topStops = { byMinutes: tops.byMinutes, byCount: tops.byCount };
     }
     const noData = per_line.length === 0;
+
+    // Top paros clasificados del pareto (los más importantes para el análisis)
+    const classifiedStops = (paretoRows || []).slice(0, 10).map((r: any) => ({
+      line: r.line_code ?? r.line ?? null,
+      machine: r.machine_code ?? r.machine ?? null,
+      n2: r.level2 ?? r.lvl2 ?? r.n2 ?? null,
+      n3: r.level3 ?? r.lvl3 ?? r.n3 ?? null,
+      duration_min: r.duration_min ?? (r.duration_s ? Math.round(r.duration_s / 60) : null),
+      count: r.count ?? 1,
+    }));
+
     return {
       source: "liwa-db",
       time_range: from && to ? { from, to } : undefined,
       no_production_data: noData,
       kpis: noData ? null : { summary, per_line },
-      stops_pending_top: topStops ?? null,
+      stops_classified_top: classifiedStops.length > 0 ? classifiedStops : null,
+      stops_pending_count: (pendingRows || []).length,
     };
   }, [kpisRows, pendingRows, from, to, linesParam]);
 
