@@ -1,167 +1,263 @@
 // app/api/ai/chat/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
-
-/**
- * Configuración
- * - Define el modelo por env: OPENAI_CHAT_MODEL (fallback: gpt-4o-mini)
- * - Requiere OPENAI_API_KEY en el entorno del servidor.
- */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
+
 const MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://liwa-web.vercel.app";
 
+/* ─────────────────────────────────────────
+   SYSTEM PROMPT
+───────────────────────────────────────── */
 const SYSTEM_PROMPT = `
-Eres **LIWA AI**, un consultor de planta integrado en el dashboard LIWA (Next.js + Supabase).
-Objetivo: convertir datos operativos en diagnósticos claros y acciones priorizadas.
+Eres LIWA AI, un agente de análisis de planta industrial integrado en el sistema OEE LIWA.
+Tu misión: convertir datos operativos en diagnósticos claros y acciones concretas priorizadas.
 
-Estilo y reglas:
-- Tono: operativo, técnico, ingenieril; directo y específico.
-- Idioma: responde en español por defecto; si el usuario escribe en otro idioma, usa ese idioma.
-- Privacidad: puedes referirte a prácticas del sector, pero **no menciones empresas por nombre**. Usa frases como “es común en la industria…”.
-- Fuente: basa tu análisis únicamente en los datos recibidos en el contexto y los mensajes. **No inventes cifras**.
-- Si el contexto llega con "no_production_data: true" o per_line vacío, significa que no hay datos de producción para ese rango. Responde brevemente: indica que no hay datos para ese período y sugiere verificar que el gateway esté activo o cambiar el rango de fechas. No pidas datos al usuario.
-- Si hay datos parciales, trabaja con lo disponible y señala qué falta.
-- Métricas: A (Disponibilidad), P (Rendimiento), Q (Calidad), OEE. Cuando des números usa 1 decimal y unidades (%, min, u/h). Redondea.
-- Paros: clasifica Planned vs Unplanned, destaca Top-N por duración/ocurrencias, comenta MTTF/MTTR si el contexto lo permite, señala micro-paros si se observan.
-- Defectos: conecta scrap/defectos con posibles causas de proceso (materia prima, set-up, mantenimiento, parámetros, método).
-- Estructura de salida por defecto (puedes omitir secciones vacías):
-  1) Lectura rápida (A, P, Q, OEE e idea clave del turno)
-  2) Principales pérdidas (Pareto resumido)
-  3) Hipótesis y pruebas (qué validar y cómo)
-  4) Acciones inmediatas (Quick Wins < 48h)
-  5) Acciones raíz (5-Why / Kaizen) con dueños y plazos sugeridos
-  6) Riesgos y supuestos
-  7) Métrica(s) a vigilar en el siguiente turno
-- Brevedad: si el usuario pide algo “breve/short”, limita a ~300 palabras; si no, ~600.
-- Evita genéricos vacíos: cada recomendación debe ser accionable (qué, quién, cuándo, cómo medir).
-- Si el usuario pide comparar histórico y el contexto no trae series, dilo y sugiere el rango a consultar.
+COMPORTAMIENTO:
+- Cuando el usuario hace una pregunta, usa las herramientas disponibles para obtener los datos que necesitas ANTES de responder.
+- No esperes que el usuario te dé los datos — búscalos tú con las tools.
+- Si una tool falla o devuelve vacío, indícalo brevemente y responde con lo que tengas.
+- Nunca inventes cifras. Si no hay datos reales, dilo y explica por qué (ej: rango sin producción).
 
-Contexto esperado (ejemplos de claves si vienen en JSON):
-{
-  "time_range": {"from":"ISO", "to":"ISO"},
-  "plant": { "id": "...", "name": "..." },
-  "line": { "id": "...", "code": "L1", "name": "Línea 1" },
-  "kpis": { "availability":0.91, "performance":0.88, "quality":0.97, "oee":0.78, "trend_pp": { "oee": -1.2 } },
-  "stops": [ { "type":"unplanned|planned", "lvl1":"Fallo", "lvl2":"Mecánico", "machine":"M3", "duration_min": 12, "count":2 } ],
-  "defects": [ { "code":"SCRAP_X", "desc":"borde quemado", "qty": 120 } ],
-  "notes": ["observación operador...", "..."]
-}
-
-Si alguna clave no llega, procede con lo disponible y pide lo mínimo adicional para mejorar la precisión.
+ESTILO:
+- Tono: operativo, técnico, ingenieril. Directo y específico.
+- Responde en español.
+- Estructura sugerida cuando hay datos: resumen rápido → principales pérdidas → hipótesis → acciones concretas (qué, quién, cuándo).
+- Usa métricas reales: OEE, A (Disponibilidad), P (Rendimiento), Q (Calidad), minutos, unidades.
+- Cada recomendación debe ser accionable: qué hacer, quién, en qué plazo.
+- Si hay paros clasificados, analiza el Pareto: qué causa el 80% del tiempo perdido.
+- Si hay paros pendientes de clasificar, mencionalo como riesgo para el análisis.
 `.trim();
 
-type ChatMessage = {
-  role: "user" | "assistant" | "system";
-  content: string;
-};
+/* ─────────────────────────────────────────
+   TOOL DEFINITIONS
+───────────────────────────────────────── */
+const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "get_kpis",
+      description: "Obtiene KPIs de OEE (disponibilidad, rendimiento, calidad) por línea para un rango de fechas. Úsalo cuando necesites saber el rendimiento general de la planta.",
+      parameters: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "Fecha inicio en ISO 8601" },
+          to: { type: "string", description: "Fecha fin en ISO 8601" },
+        },
+        required: ["from", "to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_pareto",
+      description: "Obtiene el Pareto de paros clasificados agrupados por causa (N1 o N2). Úsalo para analizar qué paros causan más pérdida de tiempo.",
+      parameters: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "Fecha inicio en ISO 8601" },
+          to: { type: "string", description: "Fecha fin en ISO 8601" },
+          level: { type: "string", enum: ["l1", "l2"], description: "l1 = categoría principal, l2 = causa específica" },
+          top: { type: "number", description: "Número de causas a devolver (por defecto 10)" },
+        },
+        required: ["from", "to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_pending_stops",
+      description: "Obtiene los paros sin clasificar. Úsalo para saber cuántos paros faltan por analizar.",
+      parameters: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "Fecha inicio en ISO 8601" },
+          to: { type: "string", description: "Fecha fin en ISO 8601" },
+        },
+        required: ["from", "to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_quality",
+      description: "Obtiene datos de defectos y scrap por línea. Úsalo cuando la pregunta sea sobre calidad, defectos o scrap.",
+      parameters: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "Fecha inicio en ISO 8601" },
+          to: { type: "string", description: "Fecha fin en ISO 8601" },
+        },
+        required: ["from", "to"],
+      },
+    },
+  },
+];
 
-type ChatBody = {
-  messages: ChatMessage[];
-  /** Contexto opcional (se injecta al prompt). Puede ser cualquier objeto serializable. */
-  context?: Record<string, any>;
-  /** "brief" para respuesta corta; "detailed" por defecto. */
-  mode?: "brief" | "detailed";
-  /** Forzar idioma (por ejemplo "es" | "en"). Si no se envía, LIWA AI infiere. */
-  locale?: string;
-};
-
-function ensureApiKey() {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error(
-      "Falta OPENAI_API_KEY en variables de entorno del servidor."
-    );
-  }
-}
-
-function sanitizeMessages(msgs: ChatMessage[]): ChatMessage[] {
-  // Filtra mensajes vacíos y limita tamaño básico
-  const cleaned = (msgs || [])
-    .filter((m) => m && typeof m.content === "string" && m.content.trim().length > 0)
-    .slice(-20); // Últimos 20 como safety
-  return cleaned.length ? cleaned : [{ role: "user", content: "Analiza el último turno." }];
-}
-
-function buildSystemContent(mode?: "brief" | "detailed", locale?: string, ctx?: Record<string, any>) {
-  const modeNote =
-    mode === "brief"
-      ? "\nInstrucción de longitud: Respuesta BREVE (~300 palabras)."
-      : "\nInstrucción de longitud: Respuesta DETALLADA (~600 palabras).";
-
-  const localeNote = locale
-    ? `\nIdioma forzado: ${locale}.`
-    : "";
-
-  let ctxNote = "";
-  if (ctx && Object.keys(ctx).length > 0) {
-    // Inyecta el contexto como JSON legible dentro del system
-    const ctxJson = safeJson(ctx, 4000); // limite defensivo
-    ctxNote = `\n---\nContexto de datos (JSON):\n${ctxJson}\n---`;
-  }
-
-  return `${SYSTEM_PROMPT}${modeNote}${localeNote}${ctxNote}`;
-}
-
-function safeJson(obj: any, maxLen = 8000) {
+/* ─────────────────────────────────────────
+   TOOL EXECUTION
+───────────────────────────────────────── */
+async function executeTool(name: string, args: any): Promise<string> {
   try {
-    const s = JSON.stringify(obj, null, 2);
-    return s.length <= maxLen ? s : s.slice(0, maxLen) + "\n/* ...truncado... */";
-  } catch {
-    return "/* contexto no serializable */";
+    const params = new URLSearchParams();
+    if (args.from) params.set("from", args.from);
+    if (args.to) params.set("to", args.to);
+
+    let url = "";
+    let result: any = null;
+
+    if (name === "get_kpis") {
+      params.set("step", "all");
+      url = `${BASE_URL}/api/kpis?${params}`;
+      const r = await fetch(url, { cache: "no-store" });
+      const d = await r.json();
+      if (!d.ok || !d.rows?.length) return JSON.stringify({ error: "Sin datos de producción para este rango" });
+      result = d.rows.map((r: any) => ({
+        linea: r.line_code,
+        oee: r.oee != null ? `${Math.round(r.oee * 100)}%` : null,
+        disponibilidad: r.availability != null ? `${Math.round(r.availability * 100)}%` : null,
+        rendimiento: r.performance != null ? `${Math.round(r.performance * 100)}%` : null,
+        calidad: r.quality != null ? `${Math.round(r.quality * 100)}%` : null,
+        tendencia_pp: r.trend_pp ?? null,
+      }));
+    }
+
+    else if (name === "get_pareto") {
+      params.set("level", args.level || "l2");
+      params.set("top", String(args.top || 10));
+      params.set("metric", "minutes");
+      url = `${BASE_URL}/api/pareto-stops?${params}`;
+      const r = await fetch(url, { cache: "no-store" });
+      const d = await r.json();
+      if (!d.ok || !d.categories?.length) return JSON.stringify({ error: "Sin paros clasificados para este rango" });
+      result = {
+        total_minutos_perdidos: d.meta?.total_minutes,
+        total_ocurrencias: d.meta?.total_count,
+        top_causas: d.categories.map((c: any) => ({
+          causa: c.label,
+          minutos: c.minutes,
+          ocurrencias: c.count,
+          pct: `${c.pct}%`,
+          acumulado: `${c.cumPct}%`,
+        })),
+      };
+    }
+
+    else if (name === "get_pending_stops") {
+      params.set("state", "pending");
+      params.set("limit", "50");
+      url = `${BASE_URL}/api/downtimes?${params}`;
+      const r = await fetch(url, { cache: "no-store" });
+      const d = await r.json();
+      if (!d.ok) return JSON.stringify({ error: "Error al obtener paros pendientes" });
+      result = {
+        total_pendientes: d.total_count ?? 0,
+        muestra: (d.rows || []).slice(0, 10).map((r: any) => ({
+          linea: r.line_code,
+          maquina: r.machine_code,
+          inicio: r.started_at,
+          duracion_min: r.duration_s ? Math.round(r.duration_s / 60) : null,
+        })),
+      };
+    }
+
+    else if (name === "get_quality") {
+      url = `${BASE_URL}/api/quality/defects?${params}`;
+      const r = await fetch(url, { cache: "no-store" });
+      const d = await r.json();
+      if (!d.ok || !d.rows?.length) return JSON.stringify({ error: "Sin datos de calidad para este rango" });
+      result = d.rows;
+    }
+
+    return JSON.stringify(result ?? { error: "Tool no reconocida" });
+  } catch (e: any) {
+    return JSON.stringify({ error: e?.message || "Error ejecutando tool" });
   }
 }
+
+/* ─────────────────────────────────────────
+   HANDLER
+───────────────────────────────────────── */
+type ChatBody = {
+  messages: { role: "user" | "assistant"; content: string }[];
+  time_range?: { from: string; to: string };
+};
 
 export async function GET() {
-  // Healthcheck simple
-  return NextResponse.json({ ok: true, model: MODEL, status: "LIWA AI endpoint live" });
+  return NextResponse.json({ ok: true, model: MODEL, status: "LIWA AI agent live" });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    ensureApiKey();
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    if (!process.env.OPENAI_API_KEY) throw new Error("Falta OPENAI_API_KEY");
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const body = (await req.json()) as ChatBody;
+    const userMessages = (body.messages || [])
+      .filter(m => m.content?.trim())
+      .slice(-20);
 
-    const userMessages = sanitizeMessages(body?.messages || []);
-    const systemContent = buildSystemContent(body?.mode, body?.locale, body?.context);
+    // Inyectar rango de tiempo en el system para que el agente lo use en las tools
+    const rangeNote = body.time_range
+      ? `\nRango de tiempo activo en el dashboard: from="${body.time_range.from}" to="${body.time_range.to}". Usa estos valores por defecto en las tools a menos que el usuario pida otro rango.`
+      : "";
 
-    const messages: ChatMessage[] = [
-      { role: "system", content: systemContent },
-      ...userMessages,
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: SYSTEM_PROMPT + rangeNote },
+      ...userMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
-    const completion = await openai.chat.completions.create({
-      model: MODEL,
-      messages,
-      temperature: 0.2,
-      max_tokens: 900, // control de coste
-    });
+    // Agentic loop — máximo 5 iteraciones para evitar loops infinitos
+    let iterations = 0;
+    while (iterations < 5) {
+      iterations++;
 
-    const choice = completion.choices?.[0]?.message;
-    const reply = choice?.content?.trim() || "";
+      const completion = await openai.chat.completions.create({
+        model: MODEL,
+        messages,
+        tools: TOOLS,
+        tool_choice: "auto",
+        temperature: 0.2,
+        max_tokens: 1200,
+      });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        reply,
-        meta: {
-          model: MODEL,
-          usage: completion.usage ?? null,
-        },
-      },
-      { status: 200 }
-    );
+      const choice = completion.choices[0];
+      const msg = choice.message;
+
+      // Si la IA quiere llamar tools
+      if (choice.finish_reason === "tool_calls" && msg.tool_calls?.length) {
+        messages.push(msg); // añadir mensaje del asistente con tool_calls
+
+        // Ejecutar todas las tools en paralelo
+        const toolResults = await Promise.all(
+          msg.tool_calls.map(async (tc) => {
+            const args = JSON.parse(tc.function.arguments || "{}");
+            const result = await executeTool(tc.function.name, args);
+            return {
+              role: "tool" as const,
+              tool_call_id: tc.id,
+              content: result,
+            };
+          })
+        );
+
+        messages.push(...toolResults);
+        continue; // siguiente iteración con los resultados
+      }
+
+      // Respuesta final
+      const reply = msg.content?.trim() || "";
+      return NextResponse.json({ ok: true, reply, meta: { model: MODEL, iterations } });
+    }
+
+    return NextResponse.json({ ok: false, error: "El agente alcanzó el límite de iteraciones" }, { status: 500 });
+
   } catch (err: any) {
-    const msg =
-      typeof err?.message === "string"
-        ? err.message
-        : "Error inesperado generando la respuesta.";
-    // No exponemos detalles sensibles
-    return NextResponse.json(
-      { ok: false, error: msg },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "Error inesperado" }, { status: 500 });
   }
 }
