@@ -166,14 +166,14 @@ export default function LiwaAiPage() {
       .catch(() => setPendingRows([]));
   }, [from, to]);
 
-  // Paros clasificados via pareto-stops
+  // Paros clasificados via pareto-stops (nivel l2 = causa)
   useEffect(() => {
-    const params = new URLSearchParams({ limit: "20" });
+    const params = new URLSearchParams({ level: "l2", top: "10", metric: "minutes" });
     if (from) params.set("from", from);
     if (to) params.set("to", to);
     fetch(`/api/pareto-stops?${params}`, { cache: "no-store" })
       .then(r => r.json())
-      .then(d => setParetoRows(d.ok ? (d.rows || d.data || []) : []))
+      .then(d => setParetoRows(d.ok ? (d.categories || []) : []))
       .catch(() => setParetoRows([]));
   }, [from, to]);
 
@@ -201,14 +201,12 @@ export default function LiwaAiPage() {
     }
     const noData = per_line.length === 0;
 
-    // Top paros clasificados del pareto (los más importantes para el análisis)
-    const classifiedStops = (paretoRows || []).slice(0, 10).map((r: any) => ({
-      line: r.line_code ?? r.line ?? null,
-      machine: r.machine_code ?? r.machine ?? null,
-      n2: r.level2 ?? r.lvl2 ?? r.n2 ?? null,
-      n3: r.level3 ?? r.lvl3 ?? r.n3 ?? null,
-      duration_min: r.duration_min ?? (r.duration_s ? Math.round(r.duration_s / 60) : null),
-      count: r.count ?? 1,
+    // Top paros clasificados del pareto — agrupados por causa (N2)
+    const classifiedStops = (paretoRows || []).map((r: any) => ({
+      causa: r.label ?? null,
+      minutos_total: r.minutes ?? null,
+      ocurrencias: r.count ?? null,
+      pct_del_total: r.pct ?? null,
     }));
 
     return {
