@@ -186,6 +186,7 @@ export default function OnboardingPage() {
 
     const { error } = await sb.schema("liwa").from("shift_templates").insert({
       org_id: orgId,
+      plant_id: plantId,
       code: shiftCode.trim().toUpperCase(),
       name: shiftName.trim(),
       starts_at,
