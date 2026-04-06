@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link"; // 👈 se había perdido este import
-import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
@@ -11,6 +11,10 @@ type Props = {
 
 export default function AiDiscoButton({ className = "" }: Props) {
   const pathname = usePathname();
+  const sp = useSearchParams();
+  const aiHref = sp.get("from") && sp.get("to")
+    ? `/ai?from=${sp.get("from")}&to=${sp.get("to")}`
+    : "/ai";
   const supabase = createClientComponentClient();
   const [logged, setLogged] = useState<boolean | null>(null);
 
@@ -40,7 +44,7 @@ export default function AiDiscoButton({ className = "" }: Props) {
     <>
       <div className={`relative group ${className}`}>
         <Link
-          href="/ai"
+          href={aiHref}
           title="Abrir LIWA AI"
           aria-label="Abrir LIWA AI"
           className="

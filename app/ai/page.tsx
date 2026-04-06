@@ -125,8 +125,12 @@ export default function LiwaAiPage() {
   const [loading, setLoading] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
-  const from = sp.get("from") || "";
-  const to = sp.get("to") || "";
+  // Si no hay rango en la URL, usar últimas 24h por defecto
+  const now = new Date();
+  const defaultTo = now.toISOString();
+  const defaultFrom = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const from = sp.get("from") || defaultFrom;
+  const to = sp.get("to") || defaultTo;
   const linesParam = sp.get("lines") || "";
 
   /* ── Datos ── */
