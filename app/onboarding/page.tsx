@@ -190,7 +190,6 @@ export default function OnboardingPage() {
       name: shiftName.trim(),
       starts_at,
       ends_at,
-      overnight,
       is_active: true,
     });
 
