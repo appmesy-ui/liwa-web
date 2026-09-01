@@ -220,7 +220,7 @@ export default function AvailabilityPage() {
   }, [from, to, stateFilter, limit, offset]);
 
   return (
-    <main className="px-5 py-6 md:px-8 md:py-8">
+    <main className="liwa-page px-5 py-6 md:px-8 md:py-8">
       <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Availability (A)</h1>
         <p className="text-sm text-slate-300">
@@ -245,7 +245,7 @@ export default function AvailabilityPage() {
       </section>
 
       {/* Resumen de Paros */}
-      <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 mb-6">
+      <section className="liwa-panel p-4 md:p-5 mb-6">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-slate-100">Resumen de Paros</h2>
 
@@ -365,7 +365,7 @@ export default function AvailabilityPage() {
       </section>
 
       {/* Ranking por línea */}
-      <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5">
+      <section className="liwa-panel p-4 md:p-5">
         <h2 className="text-lg font-semibold tracking-tight text-slate-100 mb-3">Ranking por línea</h2>
 
         {kpiLoading && <div className="text-sm text-slate-400">Cargando…</div>}

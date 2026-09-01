@@ -393,7 +393,7 @@ export default function TurnoResumenReportPage() {
       : rows;
 
   return (
-    <main className="min-h-screen w-full bg-slate-950 text-slate-100 px-5 py-8">
+    <main className="liwa-page w-full px-5 py-8">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Breadcrumb simple */}
         <div className="text-sm text-slate-400 mb-2">

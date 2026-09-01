@@ -173,11 +173,13 @@ export default function LiveDashboardPage() {
       : null;
 
   return (
-    <main className="px-5 py-6 md:px-8 md:py-8 space-y-6">
+    <main className="liwa-page px-5 py-6 md:px-8 md:py-8 space-y-6">
       <header className="mb-2 space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
-          Live · Turno actual
-        </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="relative flex h-4 w-4"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-50" /><span className="relative inline-flex h-4 w-4 rounded-full bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,.9)]" /></span>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Live · Turno actual</h1>
+          <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-bold tracking-wider text-cyan-300">EN VIVO</span>
+        </div>
         <p className="text-sm text-slate-300">
           KPIs en curso del turno activo (A, P, Q, OEE) calculados desde el
           inicio del turno hasta el momento actual, sin esperar al cierre del día.
@@ -191,7 +193,7 @@ export default function LiveDashboardPage() {
       )}
 
       {/* Info de turno activo */}
-      <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5">
+      <section className="liwa-panel p-4 md:p-5">
         <h2 className="text-lg font-semibold tracking-tight text-slate-100 mb-3">
           Turno en curso
         </h2>
@@ -229,6 +231,9 @@ export default function LiveDashboardPage() {
               <div className="font-medium">
                 {pct(progressPct, 1)}
               </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-950/70 ring-1 ring-white/[0.06]">
+                <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-sky-500 transition-[width] duration-500" style={{ width: `${Math.max(0, Math.min(100, (progressPct ?? 0) * 100))}%` }} />
+              </div>
             </div>
           </div>
         )}
@@ -238,28 +243,32 @@ export default function LiveDashboardPage() {
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card
           title="Availability (A) · live"
+          valueNum={resumen.aAvg}
           value={loading ? "…" : pct(resumen.aAvg)}
           hint="Disponibilidad del turno hasta ahora"
         />
         <Card
           title="Performance (P) · live"
+          valueNum={resumen.pAvg}
           value={loading ? "…" : pct(resumen.pAvg)}
           hint="Velocidad vs ciclo ideal en el turno"
         />
         <Card
           title="Quality (Q) · live"
+          valueNum={resumen.qAvg}
           value={loading ? "…" : pct(resumen.qAvg)}
           hint="Calidad del turno hasta ahora"
         />
         <Card
           title="OEE · live"
+          valueNum={resumen.oAvg}
           value={loading ? "…" : pct(resumen.oAvg)}
           hint="A × P × Q sobre el turno en curso"
         />
       </section>
 
       {/* Tabla por línea */}
-      <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5">
+      <section className="liwa-panel p-4 md:p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-slate-100">
             Líneas en el turno actual
@@ -269,7 +278,7 @@ export default function LiveDashboardPage() {
           )}
         </div>
 
-        <div className="rounded-xl border border-white/10 overflow-hidden">
+        <div className="liwa-table">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-950/60 text-slate-300">
@@ -345,7 +354,7 @@ export default function LiveDashboardPage() {
       </section>
 
       {/* Máquinas en tiempo (casi) real via MQTT */}
-      <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5">
+      <section className="liwa-panel p-4 md:p-5">
         <h2 className="text-lg font-semibold tracking-tight text-slate-100 mb-3">
           Máquinas · telemetría en vivo
         </h2>
@@ -380,17 +389,33 @@ export default function LiveDashboardPage() {
 function Card({
   title,
   value,
+  valueNum,
   hint,
 }: {
   title: string;
   value: string;
+  valueNum?: number | null;
   hint?: string;
 }) {
+  const normalized = Math.max(0, Math.min(1, Number(valueNum) || 0));
+  const percent = normalized * 100;
+  const gradient = percent < 60
+    ? "linear-gradient(90deg,#fb7185,#ef4444)"
+    : percent < 75
+      ? "linear-gradient(90deg,#fb923c,#f59e0b)"
+      : percent < 85
+        ? "linear-gradient(90deg,#facc15,#eab308)"
+        : percent < 95
+          ? "linear-gradient(90deg,#22d3ee,#0ea5e9)"
+          : "linear-gradient(90deg,#2dd4bf,#22c55e)";
   return (
-    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-5">
+    <div className="liwa-card p-5">
       <div className="text-slate-200/90 text-sm">{title}</div>
       <div className="mt-1 text-3xl font-semibold tracking-tight tabular-nums">
         {value}
+      </div>
+      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-950/70 p-[2px] ring-1 ring-white/[0.06]" role="progressbar" aria-label={`${title}: ${value}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}>
+        <div className="h-full rounded-full transition-[width,background-color] duration-500" style={{ width: `${percent}%`, background: gradient }} />
       </div>
       {hint ? (
         <div className="mt-1 text-xs text-slate-400">{hint}</div>

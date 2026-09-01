@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default function ReportingPage() {
   return (
-    <main className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+    <main className="liwa-page w-full">
       <section className="max-w-7xl mx-auto px-5 py-10 space-y-8">
         {/* Tabs arriba (Dashboard / Live / Reporting) */}
         <div className="mb-2 flex gap-3">
@@ -55,11 +55,11 @@ export default function ReportingPage() {
           {/* 1. Resumen de turno */}
           <Link
             href="/dashboard/reporting/turno-resumen"
-            className="group relative flex flex-col justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-5 hover:bg-white/[0.07] hover:border-emerald-400/70 transition-colors"
+            className="liwa-card group relative flex flex-col justify-between p-5"
           >
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold group-hover:text-emerald-300">
+                <h2 className="text-lg font-semibold group-hover:text-cyan-300">
                   1. Resumen de turno
                 </h2>
                 <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-mono text-emerald-300 border border-emerald-400/40">
@@ -86,11 +86,11 @@ export default function ReportingPage() {
           {/* 2. Paros y pérdidas */}
           <Link
             href="/dashboard/reporting/turno-paros"
-            className="group relative flex flex-col justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-5 hover:bg-white/[0.07] hover:border-emerald-400/70 transition-colors"
+            className="liwa-card group relative flex flex-col justify-between p-5"
           >
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold group-hover:text-emerald-300">
+                <h2 className="text-lg font-semibold group-hover:text-cyan-300">
                   2. Paros y pérdidas
                 </h2>
                 <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-mono text-emerald-300 border border-emerald-400/40">

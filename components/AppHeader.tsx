@@ -20,7 +20,7 @@ function SignOutButton({ className = "" }: { className?: string }) {
   return (
     <button
       onClick={signOut}
-      className={`rounded-xl border border-slate-700 px-4 py-2 text-sm hover:bg-slate-900/60 ${className}`}
+      className={`rounded-xl border border-cyan-300/15 bg-slate-900/35 px-4 py-2 text-sm transition hover:border-cyan-300/35 hover:bg-slate-800/70 ${className}`}
       title="Cerrar sesión"
     >
       Cerrar sesión
@@ -86,7 +86,7 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
   // ====== HEADER MINIMAL SIN SESIÓN ======
   if (hydrated && !isAuthed) {
     return (
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-cyan-300/10 bg-[#050b18]/85 backdrop-blur-xl">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <a href="/" className="flex items-center gap-3">
             <Image src="/liwa-logo.svg" alt="LIWA" width={32} height={32} priority />
@@ -107,7 +107,7 @@ export default function AppHeader({ orgName, userEmail, fromISO, toISO }: Props)
   return (
     <>
       {/* Barra superior */}
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-cyan-300/10 bg-[#050b18]/85 backdrop-blur-xl">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           {/* Izquierda: hamburguesa en móvil / navegación en desktop */}
           <div className="flex items-center gap-3">

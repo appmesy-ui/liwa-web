@@ -201,7 +201,7 @@ export default function Page({ params }: { params: { id: string } }) {
         <div
           className="
             w-full md:max-w-2xl
-            bg-slate-950/95 border border-slate-800 shadow-2xl
+            bg-[#07101f]/95 border border-cyan-300/15 shadow-[0_30px_90px_-35px_rgba(6,182,212,.55)]
             rounded-t-2xl md:rounded-2xl overflow-hidden
           "
           style={{ maxHeight: "92vh" }}
@@ -353,7 +353,7 @@ export default function Page({ params }: { params: { id: string } }) {
                   {/* Notas */}
                   <Field label="Notas">
                     <textarea
-                      className="w-full min-h-[96px] rounded-xl bg-slate-900 text-slate-100 p-3 outline-none border border-slate-700 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600/40"
+                      className="w-full min-h-[96px] rounded-xl bg-slate-900 text-slate-100 p-3 outline-none border border-slate-700 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/40"
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       placeholder="Detalle opcional…"
@@ -386,7 +386,7 @@ export default function Page({ params }: { params: { id: string } }) {
             <button
               onClick={save}
               disabled={isSaving || !selectedLeafId || !!error || loading}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-slate-900 font-medium"
+              className="liwa-primary"
             >
               {isSaving ? "Guardando…" : "Guardar clasificación"}
             </button>
@@ -422,7 +422,7 @@ function Step({ active, children }: { active: boolean; children: React.ReactNode
     <div className="flex items-center gap-2">
       <span
         className={`h-5 w-5 rounded-full grid place-items-center text-[10px] ${
-          active ? "bg-emerald-600 text-slate-900" : "bg-slate-700 text-slate-300"
+          active ? "bg-cyan-400 text-slate-950" : "bg-slate-700 text-slate-300"
         }`}
       >
         {active ? "✓" : "•"}

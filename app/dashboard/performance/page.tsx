@@ -122,7 +122,7 @@ export default function PerformancePage() {
   const linesCount = sorted.length;
 
   return (
-    <main className="px-3 sm:px-4 md:px-8 py-5 md:py-8">
+    <main className="liwa-page px-3 sm:px-4 md:px-8 py-5 md:py-8">
       {/* Header */}
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-500/10 via-cyan-400/5 to-transparent p-4 sm:p-6 mb-6">
         <div className="flex items-center justify-between gap-3">
@@ -181,7 +181,7 @@ export default function PerformancePage() {
       </section>
 
       {/* Donut composición */}
-      <section className="rounded-2xl border border-white/10 bg-white/[0.035] backdrop-blur-sm p-4 md:p-5 mb-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.6)]">
+      <section className="liwa-panel p-4 md:p-5 mb-6">
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-slate-100">Composición</h2>
@@ -246,7 +246,7 @@ export default function PerformancePage() {
       </section>
 
       {/* Ranking por línea — mejorado */}
-      <section className="rounded-2xl border border-white/10 bg-white/[0.035] backdrop-blur-sm p-4 md:p-5 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.6)]">
+      <section className="liwa-panel p-4 md:p-5">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold tracking-tight text-slate-100">
             Ranking por línea

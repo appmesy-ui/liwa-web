@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default function MaquinasOeeReportPage() {
   return (
-    <main className="min-h-screen w-full bg-slate-950 text-slate-100 px-5 py-8">
+    <main className="liwa-page w-full px-5 py-8">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="text-sm text-slate-400 mb-2">
           <Link href="/dashboard/reporting" className="hover:underline">

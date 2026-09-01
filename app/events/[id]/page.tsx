@@ -126,10 +126,10 @@ export default function ClassifyEventPage({ params }: { params: { id: string } }
   if (!ev) return <div className="p-8">Evento no encontrado</div>;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <div className="liwa-page max-w-3xl mx-auto px-4 py-8 space-y-6">
       <h1 className="text-2xl font-semibold">Clasificar evento</h1>
 
-      <div className="rounded-2xl border border-white/10 p-4 space-y-2 text-sm">
+      <div className="liwa-panel p-4 space-y-2 text-sm">
         <div><span className="opacity-60">ID:</span> <code>{ev.id}</code></div>
         <div><span className="opacity-60">Inicio:</span> {new Date(ev.started_at).toLocaleString()}</div>
         <div><span className="opacity-60">Línea:</span> {ev.line_id ?? '—'}</div>

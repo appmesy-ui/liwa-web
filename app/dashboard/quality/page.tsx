@@ -317,7 +317,7 @@ export default function QualityPage() {
   }, [rows, from, to]);
 
   return (
-    <div className="px-4 py-5 md:px-6 md:py-6 space-y-6 text-slate-100">
+    <div className="liwa-page px-4 py-5 md:px-6 md:py-6 space-y-6 text-slate-100">
       {/* Header */}
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Quality (Q)</h1>

@@ -163,11 +163,11 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="liwa-page p-6 max-w-7xl mx-auto">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold">Configuración de Planta</h1>
         <p className="text-sm text-slate-400">
-          Administra líneas, máquinas y parámetros operativos.
+          Estructura operativa, turnos y clasificación de paros.
         </p>
       </header>
 
@@ -180,16 +180,16 @@ export default function SettingsPage() {
         </Link>
       </div>
 
-      <nav className="flex gap-2 border-b border-slate-800 mb-4">
+      <nav className="liwa-panel mb-5 flex flex-wrap gap-1 p-1.5">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={[
-              "px-3 py-2 text-sm border-b-2 -mb-[2px]",
+              "rounded-xl px-4 py-2.5 text-sm transition",
               activeTab === t.key
-                ? "border-sky-500 text-white"
-                : "border-transparent text-slate-400 hover:text-slate-200",
+                ? "bg-cyan-400/15 text-cyan-100 ring-1 ring-inset ring-cyan-300/35 shadow-[0_8px_24px_-14px_rgba(34,211,238,.8)]"
+                : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200",
             ].join(" ")}
           >
             {t.label}

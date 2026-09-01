@@ -377,7 +377,7 @@ export default function QualityByLinePage({ params }: { params: { line: string }
   }
 
   return (
-    <main className="max-w-7xl mx-auto px-5 py-8 text-slate-100">
+    <main className="liwa-page max-w-7xl mx-auto px-5 py-8 text-slate-100">
       {/* Breadcrumb + Tabs */}
       <div className="mb-6 flex items-center justify-between">
         <div>

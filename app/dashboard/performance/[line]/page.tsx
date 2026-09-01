@@ -254,7 +254,7 @@ export default function PerformanceByLinePage({
   }
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-5 md:px-8 py-6 md:py-8 text-slate-100">
+    <main className="liwa-page max-w-7xl mx-auto px-4 sm:px-5 md:px-8 py-6 md:py-8 text-slate-100">
       {/* Breadcrumb + back */}
       <div className="mb-6 flex items-center justify-between">
         <div className="text-sm text-slate-400">
@@ -311,7 +311,7 @@ export default function PerformanceByLinePage({
       )}
 
       {/* Composición P vs Gap */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)] mb-6">
+      <div className="liwa-panel p-4 md:p-5 mb-6">
         <div className="mb-3">
           <h2 className="text-lg font-semibold tracking-tight">Composición</h2>
         </div>
@@ -324,7 +324,7 @@ export default function PerformanceByLinePage({
       </div>
 
       {/* Sparkline ideal vs real */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)] mb-6">
+      <div className="liwa-panel p-4 md:p-5 mb-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-tight">
             Ritmo por segmento
@@ -390,7 +390,7 @@ export default function PerformanceByLinePage({
       </div>
 
       {/* Segmentos de velocidad (tabla + paginación) */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
+      <div className="liwa-panel p-4 md:p-5">
         <div className="flex items-center justify-between mb-3 gap-3">
           <h2 className="text-lg font-semibold tracking-tight">
             Segmentos de velocidad

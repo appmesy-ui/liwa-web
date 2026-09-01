@@ -164,8 +164,8 @@ export default function PendingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950">
-      <header className="sticky top-0 z-20 bg-slate-950 border-b border-slate-800 px-4 sm:px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+    <main className="liwa-page">
+      <header className="sticky top-0 z-20 border-b border-cyan-300/10 bg-[#050b18]/90 backdrop-blur-xl px-4 sm:px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
         <div className="max-w-6xl mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -179,7 +179,7 @@ export default function PendingPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={load}
-              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-900 font-medium hover:bg-emerald-400"
+              className="liwa-primary text-sm"
             >
               Recargar
             </button>
@@ -199,7 +199,7 @@ export default function PendingPage() {
 
         <div className="mt-4">
           {/* Tabla desktop */}
-          <div className="hidden md:block rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+          <div className="liwa-table hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-slate-900/70 text-slate-400">
                 <tr>
@@ -245,7 +245,7 @@ export default function PendingPage() {
                     <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => router.push(`/pending/${r.id}`)}
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium px-4 py-2 transition"
+                        className="liwa-primary gap-2 text-sm"
                       >
                         Clasificar →
                       </button>

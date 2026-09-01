@@ -184,7 +184,7 @@ export default function AvailabilityByLinePage({
 
   /* ===== UI ===== */
   return (
-    <main className="max-w-7xl mx-auto px-5 py-8 text-slate-100">
+    <main className="liwa-page max-w-7xl mx-auto px-5 py-8 text-slate-100">
       {/* Breadcrumb */}
       <div className="mb-6 flex items-center justify-between">
         <div>
@@ -242,7 +242,7 @@ export default function AvailabilityByLinePage({
       )}
 
       {/* Tabla de paros (paginada) */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
+      <div className="liwa-panel p-4 md:p-5">
         <div className="flex items-center justify-between mb-3 gap-3">
           <h2 className="text-lg font-semibold tracking-tight">
             Paros recientes (no planificados)
