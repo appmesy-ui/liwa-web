@@ -6,6 +6,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import {
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  CalendarClock,
+  Gauge,
+  ShieldCheck,
+} from "lucide-react";
 
 /* =========================
    Tipos
@@ -35,6 +43,15 @@ const clamp01 = (n?: number | null) =>
   Math.max(0, Math.min(1, Number.isFinite(n as number) ? (n as number) : 0));
 
 const pct = (n?: number | null) => `${(clamp01(n) * 100).toFixed(1)}%`;
+
+const getKpiLevel = (value?: number | null) => {
+  const percent = clamp01(value) * 100;
+  if (percent < 60) return { label: "Crítico", gradient: "linear-gradient(90deg,#fb7185,#ef4444)", glow: "rgba(244,63,94,.38)" };
+  if (percent < 75) return { label: "Atención", gradient: "linear-gradient(90deg,#fb923c,#f59e0b)", glow: "rgba(245,158,11,.34)" };
+  if (percent < 85) return { label: "En mejora", gradient: "linear-gradient(90deg,#facc15,#eab308)", glow: "rgba(234,179,8,.3)" };
+  if (percent < 95) return { label: "Objetivo", gradient: "linear-gradient(90deg,#22d3ee,#0ea5e9)", glow: "rgba(34,211,238,.34)" };
+  return { label: "Óptimo", gradient: "linear-gradient(90deg,#2dd4bf,#22c55e)", glow: "rgba(45,212,191,.34)" };
+};
 
 const dtf = new Intl.DateTimeFormat("es-ES", {
   timeZone: "UTC",
@@ -176,28 +193,31 @@ function KpiCard({
   valueNum,
   value,
   subtitle,
+  icon,
 }: {
   title: string;
   valueNum?: number | null;
   value: string;
   subtitle?: string;
+  icon?: ReactNode;
 }) {
   const v = clamp01(valueNum ?? 0);
+  const level = getKpiLevel(v);
   return (
     <div
       className={[
-        "rounded-2xl border p-5 backdrop-blur",
-        "bg-gradient-to-br from-white/[0.05] to-white/[0.02]",
-        "border-white/10",
-        "transition-colors",
-        "group-hover:border-emerald-400/45",
-        "group-hover:from-white/[0.07] group-hover:to-white/[0.03]",
-        "group-hover:ring-1 group-hover:ring-inset group-hover:ring-emerald-400/30",
-        "focus-within:border-emerald-400/50 focus-within:ring-1 focus-within:ring-inset focus-within:ring-emerald-400/40",
+        "h-full rounded-2xl border p-5 backdrop-blur",
+        "bg-gradient-to-br from-slate-800/90 to-slate-900/75 border-cyan-300/10",
+        "transition duration-300 group-hover:-translate-y-0.5 group-hover:border-cyan-300/35",
+        "group-hover:shadow-[0_18px_45px_-24px_rgba(34,211,238,.55)]",
+        "focus-within:border-cyan-300/50 focus-within:ring-1 focus-within:ring-inset focus-within:ring-cyan-300/30",
       ].join(" ")}
     >
       <div className="flex items-center justify-between">
-        <div className="text-slate-200/90 text-sm">{title}</div>
+        <div className="flex items-center gap-2.5 text-slate-100 text-sm font-medium">
+          <span className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-300/10 bg-cyan-300/[0.07] text-cyan-300">{icon}</span>
+          {title}
+        </div>
         {subtitle ? (
           <div className="text-[11px] px-2 py-1 rounded-lg border border-white/10 text-slate-300/80">
             {subtitle}
@@ -206,16 +226,27 @@ function KpiCard({
           <span />
         )}
       </div>
-      <div className="mt-2 text-4xl font-semibold tracking-tight">{value}</div>
-      <div className="mt-4 h-2 w-full rounded-full bg-white/10 overflow-hidden">
+      <div className="mt-5 text-4xl font-semibold tracking-tight text-white">{value}</div>
+      <div
+        className="mt-5 h-2.5 w-full overflow-hidden rounded-full bg-slate-950/70 p-[2px] ring-1 ring-white/[0.06]"
+        role="progressbar"
+        aria-label={`${title}: ${value}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(v * 100)}
+      >
         <div
-          className="h-full rounded-full transition-[width] duration-500"
+          className="h-full rounded-full transition-[width,background-color,box-shadow] duration-500 ease-out"
           style={{
             width: `${v * 100}%`,
-            background:
-              "linear-gradient(90deg, rgba(59,130,246,.9) 0%, rgba(34,197,94,.95) 60%, rgba(234,179,8,.95) 100%)",
+            background: level.gradient,
+            boxShadow: `0 0 16px ${level.glow}`,
           }}
         />
+      </div>
+      <div className="mt-3 flex items-center justify-between text-[11px]">
+        <span className="text-slate-500">Nivel actual</span>
+        <span className="font-medium text-slate-300">{level.label}</span>
       </div>
     </div>
   );
@@ -227,12 +258,14 @@ function KpiCardLink({
   valueNum,
   value,
   subtitle,
+  icon,
 }: {
   href: string;
   title: string;
   valueNum?: number | null;
   value: string;
   subtitle?: string;
+  icon?: ReactNode;
 }) {
   return (
     <Link
@@ -240,7 +273,7 @@ function KpiCardLink({
       aria-label={`Ver detalle de ${title}`}
       className="group block rounded-2xl focus:outline-none"
     >
-      <KpiCard title={title} valueNum={valueNum} value={value} subtitle={subtitle} />
+      <KpiCard title={title} valueNum={valueNum} value={value} subtitle={subtitle} icon={icon} />
     </Link>
   );
 }
@@ -266,7 +299,8 @@ function OeeHero({
   const remainder = circumference - progress;
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-5 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.6)]">
+    <div className="relative overflow-hidden rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-slate-800/90 via-slate-900/90 to-slate-950 p-5 md:p-7 shadow-[0_28px_80px_-38px_rgba(6,182,212,.5)]">
+      <div className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
       <div className="flex flex-col md:flex-row items-stretch gap-6">
         {/* Gauge */}
         <div className="relative shrink-0 self-center md:self-auto w-[200px] h-[200px]">
@@ -288,9 +322,9 @@ function OeeHero({
             {/* progreso */}
             <defs>
               <linearGradient id="oeeGrad" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stopColor="#60a5fa" />
-                <stop offset="60%" stopColor="#22c55e" />
-                <stop offset="100%" stopColor="#eab308" />
+                <stop offset="0%" stopColor="#22d3ee" />
+                <stop offset="72%" stopColor="#0ea5e9" />
+                <stop offset="100%" stopColor="#a855f7" />
               </linearGradient>
             </defs>
             <circle
@@ -581,9 +615,9 @@ export default function DashboardPage() {
   }, [rowsForAgg]);
 
   const rangeBtn = (r: "24h" | "7d" | "30d") =>
-    `px-3 py-1 rounded-lg text-xs ${
+    `px-3.5 py-2 rounded-xl text-xs transition ${
       range === r
-        ? "bg-emerald-500 text-emerald-950 font-medium shadow-[0_10px_25px_-10px_rgba(16,185,129,.7)]"
+        ? "bg-cyan-400 text-slate-950 font-semibold shadow-[0_10px_25px_-10px_rgba(34,211,238,.8)]"
         : "bg-slate-800 text-slate-300 hover:bg-slate-700"
     }`;
 
@@ -593,9 +627,9 @@ export default function DashboardPage() {
   );
 
   return (
-    <main className="min-h-screen w-full text-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <main className="min-h-screen w-full text-slate-100 bg-[#050b18] bg-[radial-gradient(circle_at_20%_0%,rgba(6,182,212,.09),transparent_32%),radial-gradient(circle_at_85%_18%,rgba(59,130,246,.07),transparent_28%)]">
       {/* Encabezado */}
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur px-5">
+      <header className="sticky top-0 z-20 border-b border-cyan-300/10 bg-[#050b18]/85 backdrop-blur-xl px-5">
         <div className="max-w-7xl mx-auto py-4 flex flex-wrap gap-3 items-center justify-between">
           <div className="flex items-center gap-4">
             <Image src="/liwa-logo.svg" alt="LIWA" width={132} height={56} priority />
@@ -638,9 +672,9 @@ export default function DashboardPage() {
             {/* Botón Reporting */}
             <Link
               href="/dashboard/reporting"
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-4 py-2 text-sm shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]"
+              className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold px-4 py-2 text-sm transition shadow-[0_12px_32px_-12px_rgba(34,211,238,.85)]"
             >
-              Reporting
+              <BarChart3 className="h-4 w-4" /> Reporting
             </Link>
           </div>
         </div>
@@ -656,18 +690,21 @@ export default function DashboardPage() {
               valueNum={agg?.availability}
               value={!hydrated || loading ? "…" : pct(agg?.availability)}
               href={`/dashboard/availability?${rangeQS}`}
+              icon={<CalendarClock className="h-5 w-5" />}
             />
             <KpiCardLink
               title="Rendimiento"
               valueNum={agg?.performance}
               value={!hydrated || loading ? "…" : pct(agg?.performance)}
               href={`/dashboard/performance?${rangeQS}`}
+              icon={<Gauge className="h-5 w-5" />}
             />
             <KpiCardLink
               title="Calidad"
               valueNum={agg?.quality}
               value={!hydrated || loading ? "…" : pct(agg?.quality)}
               href={`/dashboard/quality?${rangeQS}`}
+              icon={<ShieldCheck className="h-5 w-5" />}
             />
           </OeeHero>
         </div>
@@ -687,10 +724,11 @@ export default function DashboardPage() {
               <button
                 key={code}
                 onClick={() => toggleLine(code)}
+                aria-pressed={active}
                 className={
                   "px-3 py-1 rounded-full text-xs border transition " +
                   (active
-                    ? "bg-emerald-600/90 border-emerald-500 text-white"
+                    ? "bg-cyan-400/15 border-cyan-300/60 text-cyan-100 shadow-[0_0_18px_-8px_rgba(34,211,238,.8)]"
                     : "bg-slate-800/80 border-white/10 text-slate-300 hover:bg-slate-700")
                 }
               >
@@ -714,7 +752,7 @@ export default function DashboardPage() {
         </div>
 
         {/* KPIs por línea */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:p-5 mb-8 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]">
+        <div className="rounded-3xl border border-cyan-300/10 bg-gradient-to-br from-slate-800/65 to-slate-900/70 p-4 md:p-6 mb-8 shadow-[0_24px_60px_-34px_rgba(6,182,212,.45)]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold tracking-tight">
               KPIs por línea
@@ -833,19 +871,20 @@ export default function DashboardPage() {
         </div>
 
         {/* Pendientes + CTA */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
-            <div className="text-sm text-slate-300/80">Paros sin clasificar</div>
-            <div className="text-3xl font-semibold mt-1 tracking-tight">
-              {!hydrated || loading ? "…" : pendingCount}
+        <div className="flex items-stretch justify-end flex-wrap gap-4">
+          <div className="flex min-w-[220px] items-center gap-4 rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-400/[0.09] to-slate-900/70 px-5 py-4">
+            <span className="grid h-11 w-11 place-items-center rounded-xl border border-amber-400/25 bg-amber-400/10 text-amber-400"><AlertTriangle className="h-6 w-6" /></span>
+            <div>
+              <div className="text-sm text-slate-300/80">Paros sin clasificar</div>
+              <div className="text-3xl font-semibold mt-1 tracking-tight text-amber-300">{!hydrated || loading ? "…" : pendingCount}</div>
             </div>
           </div>
-          <a
+          <Link
             href="/pending"
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-medium px-5 py-3 transition shadow-[0_10px_30px_-10px_rgba(16,185,129,.8)]"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold px-6 py-3 transition shadow-[0_12px_34px_-12px_rgba(34,211,238,.85)]"
           >
-            Ver pendientes <span className="text-sm opacity-80">→</span>
-          </a>
+            Ver pendientes <ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
       </section>
     </main>

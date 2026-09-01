@@ -34,10 +34,10 @@ export default function DashboardLayout({
           "relative px-4 py-2 rounded-xl text-sm font-medium transition",
           "border border-white/10",
           "bg-gradient-to-b from-white/[0.06] to-white/[0.02]",
-          "hover:border-emerald-400/40 hover:from-white/[0.09]",
+          "hover:border-cyan-300/40 hover:from-white/[0.09]",
           // activo
           isActive
-            ? "text-emerald-200 ring-1 ring-inset ring-emerald-400/40 shadow-[0_10px_30px_-12px_rgba(16,185,129,.5)]"
+            ? "text-cyan-100 ring-1 ring-inset ring-cyan-300/40 shadow-[0_10px_30px_-12px_rgba(34,211,238,.55)]"
             : "text-slate-300",
         ].join(" ")}
       >
@@ -45,7 +45,7 @@ export default function DashboardLayout({
         {isActive && (
           <span
             className="absolute -bottom-1 left-2 right-2 h-[2px] rounded-full
-                       bg-gradient-to-r from-emerald-400 via-emerald-300 to-amber-300"
+                       bg-gradient-to-r from-cyan-300 via-sky-400 to-fuchsia-500"
           />
         )}
       </Link>
@@ -53,8 +53,8 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur">
+    <div className="min-h-screen bg-[#050b18] text-slate-100">
+      <header className="sticky top-0 z-20 border-b border-cyan-300/10 bg-[#050b18]/85 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-5 py-3 flex items-center gap-4">
           {/* Tabs (solo Dashboard y Live) */}
           <nav className="flex items-center gap-2">
