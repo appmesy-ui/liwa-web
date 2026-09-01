@@ -65,13 +65,12 @@ function weightedAvg(rows: RowUI[], getter: (r: RowUI) => number | null) {
 
 /* ================== Colores y estilos ================== */
 const C = {
-  good: "#10B981",
+  good: "#2DD4BF",
   scrap: "#F43F5E",
-  cardBase: "rounded-2xl border p-4 shadow-sm",
+  cardBase: "liwa-card p-5",
   // Fondo oscuro consistente (evita “cards blancas” en tablet/iPad)
   cardSkin:
-    "border-white/10 bg-slate-900/80 supports-[backdrop-filter]:backdrop-blur " +
-    "dark:bg-slate-900 dark:border-slate-700",
+    "border-cyan-300/10 bg-gradient-to-br from-slate-800/85 to-slate-900/75",
 };
 
 /* ================== UI Primitives ================== */
@@ -79,12 +78,12 @@ function BigKpi({
   label, value, sub, chip,
 }: { label: string; value: string; sub?: string; chip?: React.ReactNode }) {
   return (
-    <div className={`${C.cardBase} ${C.cardSkin}`}>
+    <div className={`${C.cardBase} ${C.cardSkin} group`}>
       <div className="flex items-start justify-between">
         <div className="text-sm text-slate-300">{label}</div>
         {chip}
       </div>
-      <div className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight text-slate-100 tabular-nums">
+      <div className="mt-4 text-3xl md:text-4xl font-semibold tracking-tight text-white tabular-nums">
         {value}
       </div>
       {sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}
@@ -110,7 +109,7 @@ function LineStackBar({ goodRatio, scrapRatio }:{ goodRatio:number; scrapRatio:n
   const good = clamp01(goodRatio), scrap = clamp01(scrapRatio);
   const tot = Math.max(1e-6, good + scrap);
   return (
-    <div className="mt-1 h-2.5 w-full rounded-full overflow-hidden bg-slate-800">
+    <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
       <div className="h-full" style={{ width: `${(good / tot) * 100}%`, backgroundColor: C.good }} />
       <div className="h-full" style={{ width: `${(scrap / tot) * 100}%`, backgroundColor: C.scrap }} />
     </div>
@@ -151,7 +150,8 @@ function LinesRanking({
 
   return (
     <div className={`${C.cardBase} ${C.cardSkin}`}>
-      <div className="text-sm text-slate-300 mb-3">Top pérdidas por línea</div>
+      <div className="mb-1 text-lg font-semibold text-slate-100">Calidad por línea</div>
+      <div className="mb-4 text-xs text-slate-400">Ordenado por mayor pérdida de calidad</div>
       <div className="space-y-3">
         {sorted.map((r, i) => {
           const scrapPct = r.units_total
@@ -165,7 +165,7 @@ function LinesRanking({
           const href = `/dashboard/quality/${encodeURIComponent(r.line)}${qs}`;
 
           return (
-            <div key={`${r.line}-${i}`} className="flex items-center gap-3">
+            <div key={`${r.line}-${i}`} className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-slate-950/30 p-3 transition hover:border-cyan-300/20">
               <div className="w-6 text-right tabular-nums text-slate-500">{i + 1}</div>
 
               <Link href={href} className="min-w-24 flex-1 group">
@@ -183,7 +183,7 @@ function LinesRanking({
               {/* Botón SIEMPRE visible (antes estaba oculto en pantallas < md) */}
               <Link
                 href={href}
-                className="inline-flex rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-200 hover:bg-white/5"
+                className="liwa-secondary px-2.5 py-1 text-xs"
                 title="Ver detalle de calidad de esta línea"
               >
                 Detalle →
@@ -319,11 +319,13 @@ export default function QualityPage() {
   return (
     <div className="liwa-page px-4 py-5 md:px-6 md:py-6 space-y-6 text-slate-100">
       {/* Header */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Quality (Q)</h1>
-        <p className="text-sm text-slate-300">
-          Q mide la proporción de unidades buenas sobre el total durante el <span className="font-medium">{analyzedLabel}</span>.
-        </p>
+      <header className="relative overflow-hidden rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-teal-400/15 via-slate-900/75 to-slate-950 p-5 md:p-7">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-teal-400/10 blur-3xl" />
+        <div className="relative">
+          <div className="liwa-kicker mb-2">Control de producción conforme</div>
+          <h1 className="text-3xl font-semibold tracking-tight text-white">Calidad (Q)</h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-300">Unidades buenas frente a producción total durante el <span className="font-medium text-teal-200">{analyzedLabel}</span>.</p>
+        </div>
       </header>
 
       {/* KPIs */}
@@ -348,9 +350,7 @@ export default function QualityPage() {
       </section>
 
       {/* Frase ejecutiva */}
-      <p className="text-sm text-slate-300 border-l-4 border-emerald-500 pl-3">
-        {summaryLine}
-      </p>
+      <div className="liwa-card flex items-center gap-3 border-l-4 border-l-teal-400 p-4 text-sm text-slate-300"><span className="h-2.5 w-2.5 shrink-0 rounded-full bg-teal-400 shadow-[0_0_14px_rgba(45,212,191,.8)]" />{summaryLine}</div>
 
       {/* Ranking por línea */}
       <section>

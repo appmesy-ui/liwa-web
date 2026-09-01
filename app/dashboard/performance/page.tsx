@@ -124,14 +124,14 @@ export default function PerformancePage() {
   return (
     <main className="liwa-page px-3 sm:px-4 md:px-8 py-5 md:py-8">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-500/10 via-cyan-400/5 to-transparent p-4 sm:p-6 mb-6">
+      <div className="relative mb-6 overflow-hidden rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-blue-500/15 via-slate-900/75 to-slate-950 p-5 sm:p-7">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-slate-100">
-              Performance (P)
+              Rendimiento (P)
             </h1>
             <p className="mt-1 text-sm text-slate-300">
-              Eficiencia de velocidad en el <span className="font-medium">{rangeLabel(from, to)}</span>.
+              Velocidad real frente al ciclo ideal durante el <span className="font-medium">{rangeLabel(from, to)}</span>.
             </p>
           </div>
           {pAvg != null && (
@@ -147,7 +147,7 @@ export default function PerformancePage() {
       {/* KPIs */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <KpiCard
-          title="Performance (P)"
+          title="Rendimiento"
           value={pct(pAvg)}
           hint="Promedio ponderado"
           icon={<Gauge className="w-4 h-4" />}
@@ -368,7 +368,7 @@ function KpiCard({
   return (
     <div className="relative group">
       <div
-        className={`rounded-2xl border border-white/10 bg-gradient-to-br ${accent} p-4 sm:p-5 backdrop-blur-sm`}
+        className={`liwa-card bg-gradient-to-br ${accent} p-4 sm:p-5 backdrop-blur-sm`}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
