@@ -1,10 +1,11 @@
 // app/dashboard/availability/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import AvailabilityParetoLauncher from "../../../components/AvailabilityParetoLauncher";
+import { Activity, Clock3, Factory, TimerOff } from "lucide-react";
 
 /* ===== Helpers ===== */
 const clamp01 = (n?: number | null) =>
@@ -221,27 +222,38 @@ export default function AvailabilityPage() {
 
   return (
     <main className="liwa-page px-5 py-6 md:px-8 md:py-8">
-      <header className="mb-4">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Availability (A)</h1>
-        <p className="text-sm text-slate-300">
-          A mide el % de tiempo planificado en que la línea estuvo disponible en el {rangeText}.
-        </p>
+      <header className="relative mb-6 overflow-hidden rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-cyan-400/10 via-slate-900/70 to-slate-950 p-5 md:p-7">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-cyan-400/10 blur-3xl" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="liwa-kicker mb-2">Análisis de tiempo operativo</div>
+            <h1 className="text-3xl font-semibold tracking-tight text-white">Disponibilidad (A)</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-300">Tiempo operativo frente al tiempo planificado durante el {rangeText}.</p>
+          </div>
+          <div className="rounded-2xl border border-cyan-300/15 bg-slate-950/45 px-4 py-3 text-right">
+            <div className="text-xs text-slate-400">Rango analizado</div>
+            <div className="mt-1 font-semibold text-cyan-200">{rangeText}</div>
+          </div>
+        </div>
       </header>
 
       {/* KPIs */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         {/* Botón Pareto dentro del card de Availability */}
         <AvailabilityParetoLauncher from={from ?? undefined} to={to ?? undefined}>
-          <Card title="Availability (A)" value={kpiLoading ? "…" : pct(aAvg)} hint="Promedio ponderado" />
+          <Card title="Disponibilidad" value={kpiLoading ? "…" : pct(aAvg)} hint="Promedio ponderado" icon={<Activity className="h-5 w-5" />} accent="cyan" progress={aAvg} />
         </AvailabilityParetoLauncher>
 
         <Card
           title="Pérdida de disponibilidad"
           value={kpiLoading ? "…" : pct(lossAvg)}
           hint="1 − A (tiempo no disponible vs plan)"
+          icon={<TimerOff className="h-5 w-5" />}
+          accent="rose"
+          progress={lossAvg}
         />
-        <Card title="Líneas consideradas" value={kpiLoading ? "…" : nf.format(ranking.length)} hint="Con datos en el rango" />
-        <Card title="Tiempo analizado" value={rangeText} hint="Según rango seleccionado" />
+        <Card title="Líneas consideradas" value={kpiLoading ? "…" : nf.format(ranking.length)} hint="Con datos en el rango" icon={<Factory className="h-5 w-5" />} accent="sky" />
+        <Card title="Tiempo analizado" value={rangeText} hint="Según rango seleccionado" icon={<Clock3 className="h-5 w-5" />} accent="violet" />
       </section>
 
       {/* Resumen de Paros */}
@@ -303,7 +315,9 @@ export default function AvailabilityPage() {
           <CounterCard title="Total" value={countTotal} />
         </div>
 
-        <div className="rounded-xl border border-white/10 overflow-hidden">
+        <DowntimeTimeline events={events} from={from} to={to} />
+
+        <div className="liwa-table mt-4">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-950/60 text-slate-300">
@@ -418,12 +432,40 @@ export default function AvailabilityPage() {
 }
 
 /* ===== UI bits ===== */
-function Card({ title, value, hint }: { title: string; value: string; hint?: string }) {
+function Card({ title, value, hint, icon, accent = "cyan", progress }: { title: string; value: string; hint?: string; icon?: ReactNode; accent?: "cyan" | "rose" | "sky" | "violet"; progress?: number | null }) {
+  const colors = {
+    cyan: "text-cyan-300 bg-cyan-300/10 border-cyan-300/15",
+    rose: "text-rose-300 bg-rose-300/10 border-rose-300/15",
+    sky: "text-sky-300 bg-sky-300/10 border-sky-300/15",
+    violet: "text-violet-300 bg-violet-300/10 border-violet-300/15",
+  }[accent];
+  const fill = { cyan: "from-cyan-400 to-sky-500", rose: "from-rose-400 to-red-500", sky: "from-sky-400 to-blue-500", violet: "from-blue-500 to-violet-500" }[accent];
   return (
-    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-5">
-      <div className="text-slate-200/90 text-sm">{title}</div>
-      <div className="mt-1 text-3xl font-semibold tracking-tight tabular-nums">{value}</div>
+    <div className="liwa-card h-full p-5">
+      <div className="flex items-center gap-3"><span className={`grid h-10 w-10 place-items-center rounded-xl border ${colors}`}>{icon}</span><div className="text-sm font-medium text-slate-200">{title}</div></div>
+      <div className="mt-4 text-3xl font-semibold tracking-tight tabular-nums text-white">{value}</div>
+      {progress != null ? <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-950/70"><div className={`h-full rounded-full bg-gradient-to-r ${fill} transition-[width] duration-500`} style={{ width: `${clamp01(progress) * 100}%` }} /></div> : null}
       {hint ? <div className="mt-1 text-xs text-slate-400">{hint}</div> : null}
+    </div>
+  );
+}
+
+function DowntimeTimeline({ events, from, to }: { events: DowntimeRow[]; from: string | null; to: string | null }) {
+  const start = from ? new Date(from).getTime() : Date.now() - 86400000;
+  const end = to ? new Date(to).getTime() : Date.now();
+  const span = Math.max(1, end - start);
+  return (
+    <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/40 p-4">
+      <div className="mb-3 flex items-center justify-between"><div><div className="text-sm font-semibold text-slate-200">Cronología de paros</div><div className="text-xs text-slate-500">Distribución temporal de los eventos visibles</div></div><div className="flex gap-3 text-[11px] text-slate-400"><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400" />Pendiente</span><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />Clasificado</span></div></div>
+      <div className="relative h-11 overflow-hidden rounded-xl border border-white/[0.06] bg-gradient-to-r from-cyan-400/15 to-cyan-400/[0.04]">
+        {events.map((event) => {
+          const eventStart = new Date(event.started_at).getTime();
+          const left = Math.max(0, Math.min(100, ((eventStart - start) / span) * 100));
+          const width = Math.max(0.35, Math.min(8, (((event.duration_s ?? 60) * 1000) / span) * 100));
+          return <span key={event.id} className={`absolute inset-y-0 rounded-sm ${event.state === "pending" ? "bg-amber-400" : "bg-rose-400/90"}`} style={{ left: `${left}%`, width: `${width}%` }} title={`${event.machine_code ?? "Máquina"} · ${fmtDur(event.duration_s)}`} />;
+        })}
+      </div>
+      <div className="mt-2 flex justify-between text-[10px] text-slate-500"><span>{from ? dtf.format(new Date(from)) : "Inicio"}</span><span>{to ? dtf.format(new Date(to)) : "Ahora"}</span></div>
     </div>
   );
 }
