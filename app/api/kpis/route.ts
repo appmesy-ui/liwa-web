@@ -308,7 +308,10 @@ export async function GET(req: NextRequest) {
     rowsOut.sort((a, b) => a.line_code.localeCompare(b.line_code));
 
     // ====================================
-    // 5) Overflow planificado y serie simple
+    // 5) Overflow planificado y serie temporal real
+    //    - Hasta 48 h: un punto por turno completado.
+    //    - Rangos mayores: un punto diario, ponderado por tiempo planificado.
+    //    El turno/día abierto se excluye para no compararlo con periodos completos.
     // ====================================
     const plannedCeilingSec =
       (toTs.getTime() - fromTs.getTime()) / 1000;
@@ -320,11 +323,67 @@ export async function GET(req: NextRequest) {
       ? (plannedSumSec / plannedCeilingSec - 1) * 100
       : 0;
 
-    const series = rowsOut.map((r) => ({
-      bucket_ts: fromTs.toISOString(),
-      line_code: r.line_code,
-      oee: r.oee ?? null,
-    }));
+    type SeriesAgg = {
+      bucket_ts: string;
+      line_code: string;
+      weightedOee: number;
+      weight: number;
+    };
+
+    const seriesAgg = new Map<string, SeriesAgg>();
+    const useShiftBuckets = toTs.getTime() - fromTs.getTime() <= 48 * 3600 * 1000;
+    const effectiveNow = new Date(Math.min(toTs.getTime(), Date.now()));
+
+    for (const row of base as BaseRow[]) {
+      if (!row.line_id) continue;
+      const shift = shiftById[row.shift_instance_id];
+      if (!shift || new Date(shift.ends_at) > effectiveNow) continue;
+
+      const a = clamp01OrNull(row.availability == null ? null : Number(row.availability));
+      const p = clamp01OrNull(row.performance == null ? null : Number(row.performance));
+      const q = clamp01OrNull(row.quality == null ? null : Number(row.quality));
+      if (a == null || p == null || q == null) continue;
+
+      const lineCode = (codeByLine[row.line_id] || "—").toUpperCase();
+      const shiftStart = new Date(shift.starts_at);
+      const bucketTs = useShiftBuckets
+        ? shiftStart.toISOString()
+        : new Date(Date.UTC(
+            shiftStart.getUTCFullYear(),
+            shiftStart.getUTCMonth(),
+            shiftStart.getUTCDate()
+          )).toISOString();
+      const weight = Math.max(1, Number(row.planned_time_s ?? 0));
+      const key = `${lineCode}|${bucketTs}`;
+      const current = seriesAgg.get(key) || {
+        bucket_ts: bucketTs,
+        line_code: lineCode,
+        weightedOee: 0,
+        weight: 0,
+      };
+      current.weightedOee += a * p * q * weight;
+      current.weight += weight;
+      seriesAgg.set(key, current);
+    }
+
+    const series = Array.from(seriesAgg.values())
+      .map((x) => ({
+        bucket_ts: x.bucket_ts,
+        line_code: x.line_code,
+        oee: x.weight > 0 ? x.weightedOee / x.weight : null,
+      }))
+      .sort((a, b) =>
+        a.line_code.localeCompare(b.line_code) ||
+        new Date(a.bucket_ts).getTime() - new Date(b.bucket_ts).getTime()
+      );
+
+    for (const row of rowsOut) {
+      const points = series.filter((x) => x.line_code === row.line_code && x.oee != null);
+      row.spark = points.map((x) => x.oee);
+      row.trend_pp = points.length >= 2
+        ? (points[points.length - 1].oee! - points[points.length - 2].oee!) * 100
+        : null;
+    }
 
     return NextResponse.json({
       ok: true,
